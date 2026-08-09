@@ -1,0 +1,9 @@
+models:
+  atlas:
+    staging:
+      +materialized: view
+      +schema: staging
+    marts:
+      +materialized: table
+      +schema: analytics
+      +tags: ['revenue', 'atlas-generated']

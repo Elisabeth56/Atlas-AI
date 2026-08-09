@@ -1,0 +1,123 @@
+{
+  "planner": {
+    "goal": "Build a customer revenue pipeline joining Stripe payments with Postgres customers and orders",
+    "entities": [
+      "revenue",
+      "customer",
+      "orders",
+      "payments"
+    ],
+    "summary": "identified target entities: revenue, customer, orders, payments"
+  },
+  "metadata_analyst": {
+    "matched_datasets": [
+      {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:stripe,raw.stripe_payments,PROD)",
+        "name": "raw.stripe_payments",
+        "platform": "stripe",
+        "confidence": 0.94,
+        "columns": [
+          "payment_id",
+          "customer_id",
+          "amount_cents",
+          "currency",
+          "card_last4",
+          "created_at"
+        ],
+        "owners": [
+          "data-platform@atlas.ai"
+        ],
+        "tags": [
+          "pii",
+          "finance"
+        ]
+      },
+      {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,public.customers,PROD)",
+        "name": "public.customers",
+        "platform": "postgres",
+        "confidence": 0.91,
+        "columns": [
+          "customer_id",
+          "customer_name",
+          "email",
+          "signup_at",
+          "plan_tier"
+        ],
+        "owners": [
+          "backend-team@atlas.ai"
+        ],
+        "tags": [
+          "core"
+        ]
+      },
+      {
+        "urn": "urn:li:dataset:(urn:li:dataPlatform:postgres,public.orders,PROD)",
+        "name": "public.orders",
+        "platform": "postgres",
+        "confidence": 0.89,
+        "columns": [
+          "order_id",
+          "customer_id",
+          "payment_id",
+          "order_total",
+          "created_at"
+        ],
+        "owners": [
+          "backend-team@atlas.ai"
+        ],
+        "tags": [
+          "core",
+          "finance"
+        ]
+      }
+    ],
+    "reasoning": "Matched three datasets against the target entities using name, tag and lineage signals: raw.stripe_payments covers the payments entity, public.customers covers customer, and public.orders already links both via foreign keys, making it the natural join spine for the revenue fact table.",
+    "summary": "matched raw.stripe_payments, public.customers, public.orders \u00b7 confidence 0.89-0.94"
+  },
+  "qa": {
+    "checks": [
+      {
+        "name": "Schema compatibility",
+        "passed": true,
+        "message": "fct_customer_revenue matches the registered DataHub schema.",
+        "severity": "info"
+      },
+      {
+        "name": "SQL lint",
+        "passed": true,
+        "message": "No syntax or style violations found.",
+        "severity": "info"
+      },
+      {
+        "name": "Not-null constraints",
+        "passed": true,
+        "message": "order_id and customer_id pass not-null checks on sample data.",
+        "severity": "info"
+      },
+      {
+        "name": "PII exposure",
+        "passed": false,
+        "message": "card_last4 is tagged PII in DataHub and is not currently masked in this model.",
+        "severity": "critical"
+      },
+      {
+        "name": "Missing metadata",
+        "passed": true,
+        "message": "All columns have descriptions synced from DataHub glossary.",
+        "severity": "warning"
+      }
+    ],
+    "passed": false,
+    "summary": "flagged 1 PII column \u00b7 masking required"
+  },
+  "writeback": {
+    "urns_updated": [
+      "urn:li:dataset:(urn:li:dataPlatform:stripe,raw.stripe_payments,PROD)",
+      "urn:li:dataset:(urn:li:dataPlatform:postgres,public.customers,PROD)",
+      "urn:li:dataset:(urn:li:dataPlatform:postgres,public.orders,PROD)"
+    ],
+    "lineage_edges_added": 2,
+    "summary": "upserted metadata to DataHub \u00b7 emitted 2 lineage edges"
+  }
+}
