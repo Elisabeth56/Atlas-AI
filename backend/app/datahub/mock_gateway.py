@@ -1,9 +1,3 @@
-"""
-Mock DataHub gateway — returns realistic fixture metadata (Stripe events,
-Postgres customer/order tables) with artificial network-like delay. This
-is what the Metadata Analyst and Write-back agents run against in demo
-mode, so the pipeline is fully demoable without a running DataHub instance.
-"""
 from __future__ import annotations
 
 import asyncio
