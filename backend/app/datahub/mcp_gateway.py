@@ -1,31 +1,3 @@
-"""
-DataHub gateway implemented over MCP — talks to `mcp-server-datahub` as a
-stdio subprocess using the official MCP Python SDK, rather than calling
-DataHub's GraphQL/REST API directly. This is the gateway Atlas AI actually
-uses when a DataHub connection is configured: every read (search, schema,
-lineage) and every write (description upsert) goes through MCP tool
-calls, matching the "Atlas -> MCP tool calls -> DataHub MCP Server ->
-DataHub" architecture end to end.
-
-IMPORTANT — verification status: every other file in this backend was
-verified by actually running it against real Postgres. This file could
-not be: it was built with no running DataHub instance or MCP server
-available to test against. The client-side plumbing (StdioServerParameters,
-ClientSession, call_tool, CallToolResult.structured_content) was verified
-directly against the installed `mcp` package's actual API — but the tool
-*names and argument shapes* below (search/list_schema_fields/get_lineage/
-update_description) come from mcp-server-datahub's published tool list,
-not a live call to `session.list_tools()`. Run scripts/inspect_mcp_tools.py
-once your DataHub + MCP setup is live — it prints every tool's real input
-schema — and fix any mismatches here before relying on this in a demo.
-
-One structural gap that's confirmed from documentation, not a guess:
-there is no lineage-*writing* MCP tool as of mcp-server-datahub's current
-tool list (get_lineage / get_lineage_paths_between are read-only). Rather
-than silently dropping WritebackAgent's lineage-emission step, this
-gateway falls back to a direct GraphQL call for that one operation only
-— see emit_lineage() below. Everything else goes through MCP.
-"""
 from __future__ import annotations
 
 import json
