@@ -1,13 +1,3 @@
-"""
-DataHub gateway abstraction.
-
-Atlas AI treats DataHub as the organizational source of truth for
-metadata — every agent that needs to know "what data exists, what shape
-is it, who owns it, what's downstream of it" goes through this interface
-rather than talking to DataHub's REST/GraphQL API directly. That keeps
-agents testable against `MockDataHubGateway` and gives us a single place
-to swap transports (GMS REST, GraphQL, or the `acryl-datahub` SDK) later.
-"""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
