@@ -1,3 +1,11 @@
+"""
+Real DataHub gateway — talks to a DataHub GMS instance over its REST +
+GraphQL APIs via httpx.
+`MockDataHubGateway` remains the default
+until `DATAHUB_GMS_URL` is set (and DataHubMCPGateway is the default once
+it is — see app/orchestrator.py's _build_datahub_gateway).
+"""
+
 from __future__ import annotations
 
 import logging
