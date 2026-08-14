@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PIPELINE } from "@/lib/pipeline";
-import { HAS_BACKEND, streamUrl } from "@/lib/api";
+import { HAS_BACKEND, streamUrl, waitForSimulationResume } from "@/lib/api";
 import type { AgentId } from "@/lib/types";
 
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -122,6 +122,24 @@ export function useRunStream(runId: string) {
           next[i] = "done";
           return next;
         });
+
+        // Mirror the real orchestrator's two checkpoints in simulation so
+        // the human-in-the-loop panels render here too. See
+        // backend/app/orchestrator.py — CONTEXT_PHASE ends at index 1
+        // (Metadata Analyst); GENERATION_PHASE ends at index 4
+        // (Documentation). The panels' accept/skip actions call postAction
+        // in lib/api.ts, which fires the resume signal we're awaiting here.
+        if (i === 1) {
+          setPausedAt("context");
+          await waitForSimulationResume(runId);
+          if (cancelled) return;
+          setPausedAt(null);
+        } else if (i === 4) {
+          setPausedAt("writeback");
+          await waitForSimulationResume(runId);
+          if (cancelled) return;
+          setPausedAt(null);
+        }
       }
       if (!cancelled) setComplete(true);
     }

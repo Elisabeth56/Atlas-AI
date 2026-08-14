@@ -1,10 +1,45 @@
-import type { ArtifactBundle, RequestSummary, ValidationReport } from "@/lib/types";
+import type { ArtifactBundle, MatchedDataset, RequestSummary, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
 
-// Set this once your backend is deployed — every function below switches
-// from mock data to the real FastAPI endpoints automatically.
+// The deployed Vercel build defaults to a client-side simulation so /demo
+// and /new work reliably without depending on a live backend — Render's
+// free tier cold-starts too slowly (30s+) for a hackathon demo. The
+// simulation mirrors the real six-agent pipeline including the two
+// human-in-the-loop checkpoints — see hooks/useRunStream.ts.
+//
+// To exercise the real FastAPI backend end to end, set BOTH
+// NEXT_PUBLIC_API_URL and NEXT_PUBLIC_USE_BACKEND=true. docker-compose.yml
+// sets both, so `docker compose up --build` locally still hits the real
+// orchestrator; the Vercel build deliberately omits NEXT_PUBLIC_USE_BACKEND.
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
-export const HAS_BACKEND = API_BASE.length > 0;
+export const HAS_BACKEND =
+  process.env.NEXT_PUBLIC_USE_BACKEND === "true" && API_BASE.length > 0;
+
+// --- Simulation resume signal --------------------------------------------
+// When HAS_BACKEND is false, useRunStream simulates the pipeline in the
+// browser and pauses at each checkpoint. The checkpoint panels still call
+// acceptContext / startFresh / approveWriteback / skipWriteback — postAction
+// below fires the matching resolver so the simulation advances past the
+// pause, mirroring what the backend does over WS in real mode.
+
+type ResumeSignal = () => void;
+const resumeSignals = new Map<string, ResumeSignal[]>();
+
+export function waitForSimulationResume(requestId: string): Promise<void> {
+  return new Promise((resolve) => {
+    const arr = resumeSignals.get(requestId) ?? [];
+    arr.push(resolve);
+    resumeSignals.set(requestId, arr);
+  });
+}
+
+function triggerSimulationResume(requestId: string): void {
+  const arr = resumeSignals.get(requestId);
+  if (!arr || arr.length === 0) return;
+  const next = arr.shift()!;
+  if (arr.length === 0) resumeSignals.delete(requestId);
+  next();
+}
 
 async function http<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
@@ -49,10 +84,10 @@ export async function createRequest(prompt: string): Promise<{ request_id: strin
 
 async function postAction(requestId: string, path: string): Promise<void> {
   if (!HAS_BACKEND) {
-    // Pure frontend-only mock mode has no orchestrator to resume — mockRequest
-    // always returns a "complete" snapshot with no pending checkpoint, so
-    // there's nothing for this to actually do. No-op rather than throw, so a
-    // standalone frontend preview doesn't break if a panel somehow renders.
+    // Simulation mode: fire the pending resume so useRunStream advances past
+    // the current checkpoint. The panel that called this then unmounts as
+    // soon as useRunStream clears pausedAt on the next stage's "started".
+    triggerSimulationResume(requestId);
     return;
   }
   const res = await fetch(`${API_BASE}/api/requests/${requestId}${path}`, { method: "POST" });
@@ -89,6 +124,39 @@ function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Mirrors backend/app/demo/seed_data.py's _MATCHED_DATASETS exactly so the
+// ContextReviewPanel and WritebackApprovalPanel render the same three
+// datasets in simulation as a real Groq + DataHub run would.
+const MOCK_MATCHED_DATASETS: MatchedDataset[] = [
+  {
+    urn: "urn:li:dataset:(urn:li:dataPlatform:stripe,raw.stripe_payments,PROD)",
+    name: "raw.stripe_payments",
+    platform: "stripe",
+    confidence: 0.94,
+    columns: ["payment_id", "customer_id", "amount_cents", "currency", "card_last4", "created_at"],
+    owners: ["data-platform@atlas.ai"],
+    tags: ["pii", "finance"],
+  },
+  {
+    urn: "urn:li:dataset:(urn:li:dataPlatform:postgres,public.customers,PROD)",
+    name: "public.customers",
+    platform: "postgres",
+    confidence: 0.91,
+    columns: ["customer_id", "customer_name", "email", "signup_at", "plan_tier"],
+    owners: ["backend-team@atlas.ai"],
+    tags: ["core"],
+  },
+  {
+    urn: "urn:li:dataset:(urn:li:dataPlatform:postgres,public.orders,PROD)",
+    name: "public.orders",
+    platform: "postgres",
+    confidence: 0.89,
+    columns: ["order_id", "customer_id", "payment_id", "order_total", "created_at"],
+    owners: ["backend-team@atlas.ai"],
+    tags: ["core", "finance"],
+  },
+];
+
 function mockRequest(requestId: string): RequestSummary {
   return {
     id: requestId,
@@ -106,7 +174,13 @@ function mockRequest(requestId: string): RequestSummary {
       started_at: new Date().toISOString(),
       finished_at: new Date().toISOString(),
       input_json: null,
-      output_json: null,
+      // metadata_analyst carries the matched_datasets the two checkpoint
+      // panels read via getRequest(). All other stages leave output_json
+      // null in simulation — the panels don't consume them.
+      output_json:
+        s.id === "metadata_analyst"
+          ? ({ matched_datasets: MOCK_MATCHED_DATASETS } as Record<string, unknown>)
+          : null,
       error: null,
     })),
   };

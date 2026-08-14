@@ -159,11 +159,11 @@ Atlas AI/
 ├── docker-compose.yml
 ├── LICENSE
 ├── README.md                    ← you are here
+├── examples/                    ← real generated pipeline output,see below
 ├── backend/
 │   ├── pyproject.toml
 │   ├── Dockerfile
 │   ├── .env.example
-│   ├── examples/                 ← real generated pipeline output, see below
 │   ├── scripts/
 │   │   └── inspect_mcp_tools.py
 │   ├── app/

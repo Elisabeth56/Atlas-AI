@@ -5,7 +5,7 @@ DataHub's GraphQL/REST API directly. This is the gateway Atlas AI actually
 uses when a DataHub connection is configured: every read (search, schema,
 lineage) and every write (description upsert) goes through MCP tool
 calls, matching the "Atlas -> MCP tool calls -> DataHub MCP Server ->
-DataHub" architecture end to end.from __future__ import annotations
+DataHub" architecture end to end.
 
 One structural gap that's confirmed from documentation, not a guess:
 there is no lineage-*writing* MCP tool as of mcp-server-datahub's current
@@ -14,6 +14,8 @@ than silently dropping WritebackAgent's lineage-emission step, this
 gateway falls back to a direct GraphQL call for that one operation only
 — see emit_lineage() below. Everything else goes through MCP.
 """
+from __future__ import annotations
+
 import json
 import logging
 from contextlib import AsyncExitStack

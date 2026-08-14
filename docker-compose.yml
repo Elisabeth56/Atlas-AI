@@ -43,6 +43,11 @@ services:
         # the app falls back to its local mock simulation with zero
         # indication anything's wrong.
         NEXT_PUBLIC_API_URL: http://localhost:8000
+        # Opt into hitting the real backend. The deployed Vercel build
+        # deliberately omits this so /demo and /new use the client-side
+        # simulation (Render's free tier cold-starts too slowly for a
+        # reliable demo). See frontend/lib/api.ts.
+        NEXT_PUBLIC_USE_BACKEND: "true"
     ports:
       - "3000:3000"
     depends_on:
