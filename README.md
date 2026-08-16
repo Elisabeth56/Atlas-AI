@@ -20,6 +20,33 @@ checkpoint can be skipped in favor of "start fresh" / "skip write-back" —
 this isn't a rigid gate, it's informed consent at the two points that
 actually matter.
 
+## See it working
+
+**Demo video (2:45):** https://youtu.be/K9MFoQhIqpo
+
+**DataHub MCP integration, verified against a live instance:**
+
+`scripts/inspect_mcp_tools.py` connects `mcp-server-datahub` to a local
+DataHub (`datahub docker quickstart`) and prints every tool's real input
+schema — the same tools `app/datahub/mcp_gateway.py` calls into:
+
+![mcp tool schemas](docs/screenshots/mcp-tool-schemas.png)
+
+A live `search` call through MCP returns real DataHub results, confirming
+the gateway's call shapes match the server's actual contract:
+
+![mcp live search](docs/screenshots/mcp-live-search.png)
+
+DataHub UI at `localhost:9002` after `datahub docker quickstart`, which
+`mcp-server-datahub` and Atlas both talk to:
+
+![datahub ui](docs/screenshots/datahub-ui.png)
+
+> The deployed Vercel URL runs the pipeline as a client-side simulation
+> against the same fixture data the backend uses in `DEMO_MODE`, so it
+> works reliably without an always-on backend host. The full Groq +
+> DataHub MCP path shown above runs with `docker compose up --build`
+> locally — setup below.
 ---
 
 ## Table of contents

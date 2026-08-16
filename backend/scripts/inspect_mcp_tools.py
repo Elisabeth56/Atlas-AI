@@ -68,8 +68,8 @@ async def main() -> None:
             if search_tool is not None:
                 print("=== live 'search' call, query='customer' ===")
                 result = await session.call_tool("search", {"query": "customer"})
-                if result.structured_content is not None:
-                    print(json.dumps(result.structured_content, indent=2)[:2000])
+                if result.structuredContent is not None:
+                 print(json.dumps(result.structuredContent, indent=2)[:2000])
                 else:
                     for block in result.content:
                         if hasattr(block, "text"):

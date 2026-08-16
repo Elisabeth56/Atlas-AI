@@ -105,8 +105,8 @@ class DataHubMCPGateway(DataHubGateway):
         # structured_content directly when the tool returns structured
         # data — prefer it. Fall back to parsing the first text block as
         # JSON for servers/tools that only return text content.
-        if result.structured_content is not None:
-            return result.structured_content
+        if result.structuredContent is not None:
+          return result.structuredContent
 
         for block in result.content:
             if isinstance(block, types.TextContent):
