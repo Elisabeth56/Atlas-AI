@@ -130,7 +130,15 @@ async def approve_writeback(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     """Human approves writing generated documentation + lineage back to
-    DataHub. Resumes into the writeback phase."""
+    DataHub. Resumes into the writeback phase. Refused while QA has a critical finding."""
+    report = await db.scalar(
+        select(ValidationReport).where(ValidationReport.request_id == request_id)
+    )
+    if report is not None and report.blocking:
+        raise HTTPException(
+            status_code=409,
+            detail="QA found critical issues. Fix them or skip writeback.",
+        )
     await _claim(db, request_id, "awaiting_writeback_approval", writeback_mode="approved")
     background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, request_id)
     return {"status": "resuming"}
@@ -208,4 +216,5 @@ async def get_validation(request_id: str, db: AsyncSession = Depends(get_db)) ->
         request_id=request_id,
         checks=[ValidationCheckOut.model_validate(c) for c in report.checks],
         passed=report.passed,
+        blocking=report.blocking,
     )

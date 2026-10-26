@@ -428,12 +428,15 @@ async def _persist_artifacts(request_id: str, ctx: RunContext) -> None:
 
 async def _persist_validation_report(request_id: str, ctx: RunContext) -> None:
     qa_output = ctx.results.get("qa", {})
+    checks = qa_output.get("checks", [])
+    blocking = any(not c["passed"] and c["severity"] == "critical" for c in checks)
     async with session_scope() as db:
         db.add(
             ValidationReport(
                 request_id=request_id,
-                checks=qa_output.get("checks", []),
+                checks=checks,
                 passed=qa_output.get("passed", False),
+                blocking=blocking,
             )
         )
 

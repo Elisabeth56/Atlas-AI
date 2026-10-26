@@ -1,24 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GitBranch, Check, X } from "lucide-react";
-import { getRequest, approveWriteback, skipWriteback } from "@/lib/api";
-import type { MatchedDataset } from "@/lib/types";
+import { GitBranch, Check, X, ShieldAlert } from "lucide-react";
+import { getRequest, getValidationReport, approveWriteback, skipWriteback } from "@/lib/api";
+import type { MatchedDataset, ValidationCheck } from "@/lib/types";
 
 export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
   const [loading, setLoading] = useState(true);
   const [datasets, setDatasets] = useState<MatchedDataset[]>([]);
+  const [blockers, setBlockers] = useState<ValidationCheck[]>([]);
   const [submitting, setSubmitting] = useState<"approve" | "skip" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getRequest(requestId)
-      .then((req) => {
+    Promise.all([getRequest(requestId), getValidationReport(requestId)])
+      .then(([req, report]) => {
         if (cancelled) return;
         const run = req.agent_runs.find((r) => r.agent_name === "metadata_analyst");
         const matched = (run?.output_json?.matched_datasets as MatchedDataset[] | undefined) ?? [];
         setDatasets(matched);
+        if (report.blocking) {
+          setBlockers(report.checks.filter((c) => !c.passed && c.severity === "critical"));
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load preview.");
@@ -107,6 +111,22 @@ export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
         </div>
       )}
 
+      {!loading && blockers.length > 0 && (
+        <div className="mt-4 rounded-lg border border-accent-dim-border bg-accent-dim px-4 py-4">
+          <p className="flex items-center gap-2 text-[13px] font-medium text-text-heading">
+            <ShieldAlert className="h-4 w-4 text-accent" />
+            Write-back is blocked until these are fixed
+          </p>
+          <ul className="mt-2.5 flex flex-col gap-1.5 text-[13px] text-text-body">
+            {blockers.map((c) => (
+              <li key={c.name}>
+                • <span className="text-text-heading">{c.name}:</span> {c.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {error && <p className="mt-4 text-[13px] text-red-400">{error}</p>}
 
       <div className="mt-6 flex flex-col gap-3 border-t border-border-hairline pt-5 sm:flex-row sm:items-center sm:justify-between">
@@ -124,7 +144,7 @@ export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
           </button>
           <button
             onClick={handleApprove}
-            disabled={submitting !== null || loading || datasets.length === 0}
+            disabled={submitting !== null || loading || datasets.length === 0 || blockers.length > 0}
             className="btn-primary disabled:opacity-50"
           >
             <Check className="h-3.5 w-3.5" />

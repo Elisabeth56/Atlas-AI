@@ -153,6 +153,7 @@ class ValidationReportOut(BaseModel):
     request_id: str
     checks: list[ValidationCheckOut]
     passed: bool
+    blocking: bool
 
 
 # --- Internal: agent I/O schemas ----------------------------------------
