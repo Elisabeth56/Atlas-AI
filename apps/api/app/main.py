@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import dispose_engine, init_models
+from app.errors import install_error_handlers
 from app.orchestrator import init_datahub_mcp_gateway, shutdown_datahub_mcp_gateway
 from app.routers import requests as requests_router
 from app.routers import ws as ws_router
@@ -48,6 +49,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+install_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

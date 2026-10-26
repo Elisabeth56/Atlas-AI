@@ -1,5 +1,6 @@
 import type { ArtifactBundle, MatchedDataset, RequestSummary, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
+import { toApiError } from "@/lib/errors";
 
 // The deployed Vercel build defaults to a client-side simulation so /demo
 // and /new work reliably without depending on a live backend — Render's
@@ -43,7 +44,7 @@ function triggerSimulationResume(requestId: string): void {
 
 async function http<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} on ${path}`);
+  if (!res.ok) throw await toApiError(res);
   return res.json();
 }
 
@@ -76,7 +77,7 @@ export async function createRequest(prompt: string): Promise<{ request_id: strin
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
     });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) throw await toApiError(res);
     return res.json();
   }
   return { request_id: Math.random().toString(36).slice(2, 8) };
@@ -91,7 +92,7 @@ async function postAction(requestId: string, path: string): Promise<void> {
     return;
   }
   const res = await fetch(`${API_BASE}/api/requests/${requestId}${path}`, { method: "POST" });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} on ${path}`);
+  if (!res.ok) throw await toApiError(res);
 }
 
 // POST /api/requests/{id}/context/accept — use DataHub's matched datasets as context

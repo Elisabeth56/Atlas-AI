@@ -43,6 +43,8 @@ async def test_concurrent_accepts_run_generation_once(client, scheduled):
     )
 
     assert sorted(r.status_code for r in responses) == [202, 409]
+    loser = next(r for r in responses if r.status_code == 409)
+    assert loser.json()["error"]["code"] == "checkpoint_conflict"
     assert scheduled == [("generation", request_id)]
 
 
@@ -72,6 +74,7 @@ async def test_unknown_run_is_404(client, scheduled):
     )
 
     assert response.status_code == 404
+    assert response.json()["error"]["code"] == "run_not_found"
 
 
 async def _seed_report(request_id: str, *, blocking: bool) -> None:
@@ -100,7 +103,7 @@ async def test_critical_qa_finding_blocks_writeback_approval(client, scheduled):
     response = await client.post(f"/api/requests/{request_id}/writeback/approve")
 
     assert response.status_code == 409
-    assert "critical" in response.json()["detail"]
+    assert response.json()["error"]["code"] == "qa_blocking"
     assert scheduled == []
 
 
@@ -123,3 +126,12 @@ async def test_clean_qa_allows_approval_and_exposes_flag(client, scheduled):
 
     assert report.json()["blocking"] is False
     assert response.status_code == 202
+
+
+async def test_invalid_input_uses_the_error_shape(client):
+    response = await client.post("/api/requests", json={"prompt": ""})
+
+    body = response.json()
+    assert response.status_code == 422
+    assert body["error"]["code"] == "invalid_input"
+    assert "prompt" in body["error"]["details"]["fields"]
