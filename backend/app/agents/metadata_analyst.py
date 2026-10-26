@@ -4,20 +4,14 @@ selected. This is the agent that makes Atlas AI "metadata-grounded"
 rather than hallucinating table/column names."""
 from __future__ import annotations
 
+import json
+
 from app.agents.base import Agent, AgentResult, RunContext
 from app.schemas import MetadataAnalystOutput
-
-_SYSTEM_PROMPT = """You are the Metadata Analyst agent in Atlas AI. You are \
-given a goal, a list of target entities, and a set of candidate datasets \
-already retrieved from DataHub (with their real schemas). Select and rank \
-the datasets that are actually relevant, and explain your reasoning. Do \
-not invent columns that are not present in the provided schemas.
-"""
 
 
 class MetadataAnalystAgent(Agent):
     name = "metadata_analyst"
-    critical = True
 
     async def run(self, ctx: RunContext) -> AgentResult:
         planner_output = ctx.prior("planner")
@@ -44,12 +38,12 @@ class MetadataAnalystAgent(Agent):
 
         user_prompt = (
             f"Goal: {goal}\n"
-            f"Target entities: {entities}\n"
-            f"Candidate datasets (from DataHub search): {list(candidates.values())}"
+            f"Target entities: {json.dumps(entities)}\n"
+            f"<datahub_metadata>\n{json.dumps(list(candidates.values()))}\n</datahub_metadata>"
         )
 
         output = await ctx.llm.complete(
-            system_prompt=_SYSTEM_PROMPT,
+            prompt_id="metadata_analyst",
             user_prompt=user_prompt,
             schema=MetadataAnalystOutput,
         )

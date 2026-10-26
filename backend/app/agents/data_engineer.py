@@ -4,24 +4,14 @@ datasets. This is the agent whose output becomes the bulk of the
 Artifacts view."""
 from __future__ import annotations
 
+import json
+
 from app.agents.base import Agent, AgentResult, RunContext
 from app.schemas import DataEngineerOutput, MatchedDataset
-
-_SYSTEM_PROMPT = """You are the Data Engineer agent in Atlas AI. You are \
-given an engineering goal and a set of DataHub-grounded datasets (with \
-real column names). Generate production-quality dbt models (staging \
-models per source, one or more mart models joining them), an ad-hoc SQL \
-analysis query, a dbt schema.yml test file, and a dbt_project.yml config \
-excerpt. Only reference columns that actually exist in the provided \
-dataset schemas. Return each file as an entry in `files` with the correct \
-`kind` (dbt_model | sql | test | config), a realistic `filename`, and \
-complete `content`.
-"""
 
 
 class DataEngineerAgent(Agent):
     name = "data_engineer"
-    critical = True
 
     async def run(self, ctx: RunContext) -> AgentResult:
         planner_output = ctx.prior("planner")
@@ -34,13 +24,14 @@ class DataEngineerAgent(Agent):
         await ctx.emit_log("drafting dbt model against retrieved schema")
         await ctx.emit_log("applying data contract constraints")
 
+        datasets = json.dumps([d.model_dump() for d in matched_datasets])
         user_prompt = (
             f"Goal: {planner_output['goal']}\n"
-            f"Matched datasets: {[d.model_dump() for d in matched_datasets]}"
+            f"<datahub_metadata>\n{datasets}\n</datahub_metadata>"
         )
 
         output = await ctx.llm.complete(
-            system_prompt=_SYSTEM_PROMPT,
+            prompt_id="data_engineer",
             user_prompt=user_prompt,
             schema=DataEngineerOutput,
         )

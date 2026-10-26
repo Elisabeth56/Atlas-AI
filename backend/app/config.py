@@ -43,12 +43,15 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 20
 
     # --- LLM provider: Groq (OpenAI-compatible chat completions) ---
+    # Providers are tried in this order; any without a key is skipped (see app/llm/chain.py).
     GROQ_API_KEY: str | None = None
-    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     # Groq's current best general-purpose model for structured JSON tasks.
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    CEREBRAS_API_KEY: str | None = None
+    CEREBRAS_MODEL: str = "gpt-oss-120b"
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     LLM_TIMEOUT_SECONDS: float = 60.0
-    LLM_MAX_RETRIES: int = 2
 
     # --- DataHub (metadata knowledge graph) ---
     DATAHUB_GMS_URL: str | None = None  # e.g. http://localhost:8080
@@ -100,7 +103,9 @@ class Settings(BaseSettings):
     @property
     def llm_demo_mode(self) -> bool:
         """True if we should use the mock LLM provider."""
-        return self.DEMO_MODE or not self.GROQ_API_KEY
+        return self.DEMO_MODE or not (
+            self.GROQ_API_KEY or self.CEREBRAS_API_KEY or self.GEMINI_API_KEY
+        )
 
 
 @lru_cache

@@ -31,7 +31,7 @@ class MockLLMProvider(LLMProvider):
     async def complete(
         self,
         *,
-        system_prompt: str,
+        prompt_id: str,
         user_prompt: str,
         schema: type[T],
     ) -> T:

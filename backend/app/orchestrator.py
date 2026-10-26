@@ -49,7 +49,7 @@ from app.datahub.gateway import DataHubGateway
 from app.datahub.mcp_gateway import DataHubMCPGateway
 from app.datahub.mock_gateway import MockDataHubGateway
 from app.demo.seed_data import mock_llm_fixtures
-from app.llm.groq_provider import GroqProvider
+from app.llm.chain import ProviderChain, providers_from_settings
 from app.llm.mock_provider import MockLLMProvider
 from app.llm.provider import LLMProvider
 from app.models import AgentRun, Artifact, Request, ValidationReport
@@ -84,14 +84,9 @@ def _build_llm_provider() -> LLMProvider:
     if settings.llm_demo_mode:
         logger.info("orchestrator: using MockLLMProvider (demo mode)")
         return MockLLMProvider(fixtures=mock_llm_fixtures())
-    logger.info("orchestrator: using GroqProvider model=%s", settings.GROQ_MODEL)
-    return GroqProvider(
-        api_key=settings.GROQ_API_KEY,  # type: ignore[arg-type]  # guarded by llm_demo_mode
-        base_url=settings.GROQ_BASE_URL,
-        model=settings.GROQ_MODEL,
-        timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
-        max_retries=settings.LLM_MAX_RETRIES,
-    )
+    providers = providers_from_settings(settings)
+    logger.info("orchestrator: using providers %s", [p.name for p in providers])
+    return ProviderChain(providers, timeout_seconds=settings.LLM_TIMEOUT_SECONDS)
 
 
 # Singleton for the MCP gateway specifically — it holds a live subprocess

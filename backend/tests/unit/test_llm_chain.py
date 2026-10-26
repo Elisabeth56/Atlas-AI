@@ -1,0 +1,118 @@
+"""ProviderChain falls back on outages, waits out short rate limits and repairs invalid JSON once."""
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+
+from app.llm.chain import ProviderChain, ProviderConfig
+from app.llm.provider import LLMError
+from app.schemas import PlannerOutput
+
+GROQ = ProviderConfig("groq", "https://groq.test", "k1", "llama")
+CEREBRAS = ProviderConfig("cerebras", "https://cerebras.test", "k2", "gpt-oss")
+
+VALID = json.dumps({"goal": "build revenue", "entities": ["revenue"], "summary": "planned"})
+
+
+def _completion(content: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": content}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+        },
+    )
+
+
+class Script:
+    """A fake transport that answers each request with the next scripted response."""
+
+    def __init__(self, *responses: httpx.Response) -> None:
+        self.responses = list(responses)
+        self.requests: list[httpx.Request] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        return self.responses.pop(0)
+
+    @property
+    def hosts(self) -> list[str]:
+        return [r.url.host for r in self.requests]
+
+
+def _chain(script: Script, sleeps: list[float] | None = None) -> ProviderChain:
+    async def fake_sleep(seconds: float) -> None:
+        if sleeps is not None:
+            sleeps.append(seconds)
+
+    return ProviderChain(
+        [GROQ, CEREBRAS], transport=httpx.MockTransport(script), sleep=fake_sleep
+    )
+
+
+async def _plan(chain: ProviderChain) -> PlannerOutput:
+    return await chain.complete(prompt_id="planner", user_prompt="revenue", schema=PlannerOutput)
+
+
+async def test_rate_limit_without_retry_after_falls_back_to_next_provider():
+    script = Script(httpx.Response(429), _completion(VALID))
+
+    result = await _plan(_chain(script))
+
+    assert result.goal == "build revenue"
+    assert script.hosts == ["groq.test", "cerebras.test"]
+
+
+async def test_short_retry_after_waits_and_retries_same_provider():
+    sleeps: list[float] = []
+    script = Script(httpx.Response(429, headers={"retry-after": "2"}), _completion(VALID))
+
+    await _plan(_chain(script, sleeps))
+
+    assert sleeps == [2.0]
+    assert script.hosts == ["groq.test", "groq.test"]
+
+
+async def test_server_error_falls_back():
+    script = Script(httpx.Response(503), _completion(VALID))
+
+    await _plan(_chain(script))
+
+    assert script.hosts == ["groq.test", "cerebras.test"]
+
+
+async def test_invalid_json_is_repaired_with_the_validation_error():
+    script = Script(_completion('{"goal": "x"}'), _completion(VALID))
+
+    result = await _plan(_chain(script))
+
+    repair_messages = json.loads(script.requests[1].content)["messages"]
+    assert result.entities == ["revenue"]
+    assert "failed validation" in repair_messages[-1]["content"]
+    assert "entities" in repair_messages[-1]["content"]
+
+
+async def test_invalid_twice_fails_the_step():
+    script = Script(_completion("not json"), _completion("still not json"))
+
+    with pytest.raises(LLMError, match="after a repair attempt"):
+        await _plan(_chain(script))
+
+
+async def test_every_provider_down_raises():
+    script = Script(httpx.Response(429), httpx.Response(500))
+
+    with pytest.raises(LLMError, match="every LLM provider failed"):
+        await _plan(_chain(script))
+
+
+async def test_system_prompt_comes_from_the_prompt_file():
+    script = Script(_completion(VALID))
+
+    await _plan(_chain(script))
+
+    system = json.loads(script.requests[0].content)["messages"][0]["content"]
+    assert system.startswith("You are the Planner agent")
+    assert "JSON schema" in system

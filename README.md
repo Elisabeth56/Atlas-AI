@@ -203,7 +203,7 @@ Atlas AI/
 │   │   ├── orchestrator.py              # 3-phase pipeline runner, 2 checkpoints
 │   │   ├── agents/                       # Planner, Metadata Analyst, Data Engineer,
 │   │   │                                    QA, Documentation, Writeback
-│   │   ├── llm/                           # LLMProvider: Groq (real) + Mock
+│   │   ├── llm/                           # provider chain, prompt files, mock
 │   │   └── datahub/                        # DataHubGateway: MCP (real) + direct REST + Mock
 │   └── tests/
 │       ├── unit/                            # QA agent's deterministic checks
@@ -330,8 +330,10 @@ your input twice.
 
 ### Going beyond demo mode
 
-- **Groq:** set `GROQ_API_KEY` in `backend/.env` — get one at
-  console.groq.com/keys.
+- **LLM providers:** set any of `GROQ_API_KEY`, `CEREBRAS_API_KEY`,
+  `GEMINI_API_KEY` in `backend/.env`. They are tried in that order and a
+  rate-limited or failing provider hands the call to the next
+  ([ADR 004](docs/decisions/004-llm-provider-chain.md)).
 - **DataHub:** set `DATAHUB_GMS_URL` (and `DATAHUB_TOKEN` if your instance
   has auth enabled), then `pip install mcp-server-datahub` so
   `mcp_gateway.py` has something to spawn. Run
