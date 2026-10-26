@@ -1,25 +1,26 @@
-"""
-REST routes under /api/runs — matches apps/web/lib/api.ts, extended
-with the two human-in-the-loop checkpoints:
+"""Run routes. Every route is scoped to the caller's workspace; a run in another workspace is a 404.
 
-  POST /api/runs                         -> { run_id }
-  GET  /api/runs/{id}                     -> RequestSummary
-  GET  /api/runs/{id}/artifacts            -> ArtifactBundle
-  GET  /api/runs/{id}/validation           -> ValidationReport
-  POST /api/runs/{id}/context/accept       -> use DataHub's matched datasets as context
-  POST /api/runs/{id}/context/start-fresh  -> proceed without grounding
-  POST /api/runs/{id}/writeback/approve    -> write results back to DataHub
-  POST /api/runs/{id}/writeback/skip       -> finish without writing back
+  GET  /api/runs                          recent runs, newest first
+  POST /api/runs                          start a run
+  GET  /api/runs/{id}                     the run and its steps
+  GET  /api/runs/{id}/artifacts           generated files, grouped by kind
+  GET  /api/runs/{id}/validation          the QA report
+  POST /api/runs/{id}/context/accept      checkpoint 1: keep the matched sources
+  POST /api/runs/{id}/context/start-fresh checkpoint 1: continue without grounding
+  POST /api/runs/{id}/writeback/approve   checkpoint 2: write docs and lineage to DataHub
+  POST /api/runs/{id}/writeback/skip      checkpoint 2: finish without writing back
 """
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends
-from sqlalchemy import select, update
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.auth import Caller, current_caller
 from app.config import get_settings
 from app.database import get_db
 from app.errors import AppError
@@ -29,6 +30,7 @@ from app.schemas import (
     ArtifactBundleOut,
     CreateRunIn,
     CreateRunOut,
+    RunListItemOut,
     RunOut,
     ValidationCheckOut,
     ValidationReportOut,
@@ -39,58 +41,153 @@ logger = logging.getLogger("atlas.routers.runs")
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
+@router.get("", response_model=list[RunListItemOut])
+async def list_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    caller: Caller = Depends(current_caller),
+    db: AsyncSession = Depends(get_db),
+) -> list[Run]:
+    result = await db.execute(
+        select(Run).where(Run.workspace_id == caller.workspace_id).order_by(Run.created_at.desc()).limit(limit)
+    )
+    return list(result.scalars())
+
+
 @router.post("", response_model=CreateRunOut, status_code=201)
 async def create_run(
     body: CreateRunIn,
     background_tasks: BackgroundTasks,
+    caller: Caller = Depends(current_caller),
     db: AsyncSession = Depends(get_db),
 ) -> CreateRunOut:
-    run = Run(prompt=body.prompt, status="pending", workspace_id=get_settings().DEMO_WORKSPACE_ID)
+    await _check_rate_limit(db, caller)
+    run = Run(prompt=body.prompt, status="pending", workspace_id=caller.workspace_id, created_by=caller.user_id)
     db.add(run)
     await db.commit()
-    await db.refresh(run)
-
-    # BackgroundTasks runs *after* the response is sent. Passing an async
-    # function here means FastAPI awaits it directly on the main event
-    # loop (sync functions instead get punted to a worker thread via
-    # anyio, which has no running event loop — asyncio.create_task() would
-    # fail there, which is exactly the bug this comment used to paper
-    # over). This only launches the context phase — it pauses itself at
-    # the context checkpoint; the generation and writeback phases are
-    # launched by the checkpoint endpoints below, never automatically.
+    # runs after the response is sent; the phase pauses itself at the first checkpoint
     background_tasks.add_task(_run_and_log_errors, run_context_phase, run.id, body.prompt)
-
     return CreateRunOut(run_id=run.id)
 
 
-async def _run_and_log_errors(phase_fn, *args, **kwargs) -> None:
-    try:
-        await phase_fn(*args, **kwargs)
-    except Exception:
-        logger.exception(
-            "orchestrator phase %s crashed for args=%s", getattr(phase_fn, "__name__", phase_fn), args
-        )
+@router.get("/{run_id}", response_model=RunOut)
+async def get_run(run_id: str, caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db)) -> Run:
+    run = await db.scalar(
+        select(Run).where(Run.id == run_id, Run.workspace_id == caller.workspace_id).options(selectinload(Run.steps))
+    )
+    if run is None:
+        raise _not_found()
+    return run
 
 
-async def _claim(db: AsyncSession, run_id: str, expected: str, **changes: str) -> None:
-    """Moves a run out of a checkpoint in one statement, so two concurrent clicks can't both win.
+@router.get("/{run_id}/artifacts", response_model=ArtifactBundleOut)
+async def get_artifacts(
+    run_id: str, caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db)
+) -> ArtifactBundleOut:
+    await _owned_run(db, run_id, caller)
+    result = await db.execute(select(Artifact).where(Artifact.run_id == run_id).order_by(Artifact.created_at))
+    artifacts = result.scalars().all()
 
-    Raises 404 if the run doesn't exist and 409 if it isn't at `expected` (including when a
-    concurrent call claimed it first).
-    """
+    def joined(kind: str) -> str:
+        return "\n\n".join(f"-- {a.filename}\n{a.content}" for a in artifacts if a.kind == kind)
+
+    return ArtifactBundleOut(
+        run_id=run_id, dbt_models=joined("dbt_model"), sql=joined("sql"),
+        tests=joined("test"), docs=joined("doc"), configs=joined("config"),
+    )
+
+
+@router.get("/{run_id}/validation", response_model=ValidationReportOut)
+async def get_validation(
+    run_id: str, caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db)
+) -> ValidationReportOut:
+    await _owned_run(db, run_id, caller)
+    report = await db.scalar(select(ValidationReport).where(ValidationReport.run_id == run_id))
+    if report is None:
+        raise AppError(404, "report_not_ready", "QA hasn’t finished for this run yet.")
+    return ValidationReportOut(
+        run_id=run_id,
+        checks=[ValidationCheckOut.model_validate(c) for c in report.checks],
+        passed=report.passed,
+        blocking=report.blocking,
+    )
+
+
+@router.post("/{run_id}/context/accept", status_code=202)
+async def accept_context(
+    run_id: str, background_tasks: BackgroundTasks,
+    caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    await _claim(db, run_id, caller, "awaiting_context_approval", context_mode="grounded")
+    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, run_id)
+    return {"status": "resuming"}
+
+
+@router.post("/{run_id}/context/start-fresh", status_code=202)
+async def start_fresh(
+    run_id: str, background_tasks: BackgroundTasks,
+    caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    await _claim(db, run_id, caller, "awaiting_context_approval", context_mode="fresh")
+    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, run_id)
+    return {"status": "resuming"}
+
+
+@router.post("/{run_id}/writeback/approve", status_code=202)
+async def approve_writeback(
+    run_id: str, background_tasks: BackgroundTasks,
+    caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    await _owned_run(db, run_id, caller)
+    report = await db.scalar(select(ValidationReport).where(ValidationReport.run_id == run_id))
+    if report is not None and report.blocking:
+        raise AppError(409, "qa_blocking", "QA found critical issues. Fix them or skip writeback.")
+    await _claim(db, run_id, caller, "awaiting_writeback_approval", writeback_mode="approved")
+    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, run_id)
+    return {"status": "resuming"}
+
+
+@router.post("/{run_id}/writeback/skip", status_code=202)
+async def skip_writeback(
+    run_id: str, background_tasks: BackgroundTasks,
+    caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    await _claim(db, run_id, caller, "awaiting_writeback_approval", writeback_mode="skipped")
+    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, run_id)
+    return {"status": "resuming"}
+
+
+async def _check_rate_limit(db: AsyncSession, caller: Caller) -> None:
+    """Counts the caller's runs in the last hour; the LLM providers' free quotas are shared."""
+    if caller.user_id is None:
+        return
+    limit = get_settings().RUNS_PER_HOUR
+    since = datetime.now(UTC) - timedelta(hours=1)
+    recent = await db.scalar(
+        select(func.count()).select_from(Run).where(Run.created_by == caller.user_id, Run.created_at > since)
+    )
+    if recent >= limit:
+        raise AppError(429, "rate_limited", f"You can start {limit} runs an hour. Try again a little later.")
+
+
+async def _owned_run(db: AsyncSession, run_id: str, caller: Caller) -> Run:
+    run = await db.scalar(select(Run).where(Run.id == run_id, Run.workspace_id == caller.workspace_id))
+    if run is None:
+        raise _not_found()
+    return run
+
+
+async def _claim(db: AsyncSession, run_id: str, caller: Caller, expected: str, **changes: str) -> None:
+    """Moves a run out of a checkpoint in one statement, so two concurrent clicks can't both win."""
     result = await db.execute(
         update(Run)
-        .where(Run.id == run_id, Run.status == expected)
+        .where(Run.id == run_id, Run.workspace_id == caller.workspace_id, Run.status == expected)
         .values(status="running", **changes)
         .returning(Run.id)
     )
     if result.scalar_one_or_none() is not None:
         await db.commit()
         return
-
-    current = await db.get(Run, run_id)
-    if current is None:
-        raise AppError(404, "run_not_found", "That run doesn’t exist.")
+    current = await _owned_run(db, run_id, caller)
     raise AppError(
         409, "checkpoint_conflict",
         "This run has already moved past that step. Refresh to see where it is.",
@@ -98,120 +195,12 @@ async def _claim(db: AsyncSession, run_id: str, expected: str, **changes: str) -
     )
 
 
-@router.post("/{run_id}/context/accept", status_code=202)
-async def accept_context(
-    run_id: str,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
-    """Human accepts DataHub's matched datasets as context. Resumes into
-    the generation phase (Data Engineer -> QA -> Documentation)."""
-    await _claim(db, run_id, "awaiting_context_approval", context_mode="grounded")
-    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, run_id)
-    return {"status": "resuming"}
+async def _run_and_log_errors(phase_fn, *args) -> None:
+    try:
+        await phase_fn(*args)
+    except Exception:
+        logger.exception("phase %s crashed for %s", phase_fn.__name__, args)
 
 
-@router.post("/{run_id}/context/start-fresh", status_code=202)
-async def start_fresh(
-    run_id: str,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
-    """Human explicitly declines DataHub's matched context (or none was
-    found) and proceeds without grounding. Still resumes the same
-    generation phase — the distinction is recorded via context_mode, and
-    (in real/Groq mode) changes what the Data Engineer's prompt contains."""
-    await _claim(db, run_id, "awaiting_context_approval", context_mode="fresh")
-    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, run_id)
-    return {"status": "resuming"}
-
-
-@router.post("/{run_id}/writeback/approve", status_code=202)
-async def approve_writeback(
-    run_id: str,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
-    """Human approves writing generated documentation + lineage back to
-    DataHub. Resumes into the writeback phase. Refused while QA has a critical finding."""
-    report = await db.scalar(
-        select(ValidationReport).where(ValidationReport.run_id == run_id)
-    )
-    if report is not None and report.blocking:
-        raise AppError(409, "qa_blocking", "QA found critical issues. Fix them or skip writeback.")
-    await _claim(db, run_id, "awaiting_writeback_approval", writeback_mode="approved")
-    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, run_id)
-    return {"status": "resuming"}
-
-
-@router.post("/{run_id}/writeback/skip", status_code=202)
-async def skip_writeback(
-    run_id: str,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, str]:
-    """Human declines writing back to DataHub. The run still
-    completes — generated artifacts already exist from the generation
-    phase; only DataHub itself is left untouched."""
-    await _claim(db, run_id, "awaiting_writeback_approval", writeback_mode="skipped")
-    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, run_id)
-    return {"status": "resuming"}
-
-
-@router.get("/{run_id}", response_model=RunOut)
-async def get_run(run_id: str, db: AsyncSession = Depends(get_db)) -> Run:
-    result = await db.execute(
-        select(Run)
-        .where(Run.id == run_id)
-        .options(selectinload(Run.steps))
-    )
-    run = result.scalar_one_or_none()
-    if run is None:
-        raise AppError(404, "run_not_found", "That run doesn’t exist.")
-    return run
-
-
-@router.get("/{run_id}/artifacts", response_model=ArtifactBundleOut)
-async def get_artifacts(run_id: str, db: AsyncSession = Depends(get_db)) -> ArtifactBundleOut:
-    run = await db.get(Run, run_id)
-    if run is None:
-        raise AppError(404, "run_not_found", "That run doesn’t exist.")
-
-    result = await db.execute(
-        select(Artifact).where(Artifact.run_id == run_id).order_by(Artifact.created_at)
-    )
-    artifacts = result.scalars().all()
-
-    def _join(kind: str) -> str:
-        matching = [a for a in artifacts if a.kind == kind]
-        return "\n\n".join(f"-- {a.filename}\n{a.content}" for a in matching)
-
-    return ArtifactBundleOut(
-        run_id=run_id,
-        dbt_models=_join("dbt_model"),
-        sql=_join("sql"),
-        tests=_join("test"),
-        docs=_join("doc"),
-        configs=_join("config"),
-    )
-
-
-@router.get("/{run_id}/validation", response_model=ValidationReportOut)
-async def get_validation(run_id: str, db: AsyncSession = Depends(get_db)) -> ValidationReportOut:
-    run = await db.get(Run, run_id)
-    if run is None:
-        raise AppError(404, "run_not_found", "That run doesn’t exist.")
-
-    result = await db.execute(
-        select(ValidationReport).where(ValidationReport.run_id == run_id)
-    )
-    report = result.scalar_one_or_none()
-    if report is None:
-        raise AppError(404, "report_not_ready", "QA hasn’t finished for this run yet.")
-
-    return ValidationReportOut(
-        run_id=run_id,
-        checks=[ValidationCheckOut.model_validate(c) for c in report.checks],
-        passed=report.passed,
-        blocking=report.blocking,
-    )
+def _not_found() -> AppError:
+    return AppError(404, "run_not_found", "That run doesn’t exist.")

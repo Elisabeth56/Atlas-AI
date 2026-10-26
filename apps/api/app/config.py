@@ -22,8 +22,13 @@ class Settings(BaseSettings):
     # Mock LLM responses. DataHub is separate: it goes live whenever DATAHUB_GMS_URL is set.
     DEMO_MODE: bool = True
 
-    # Runs are created here until sign-in lands (#25); matches supabase/seed.sql.
-    DEMO_WORKSPACE_ID: str = "00000000-0000-0000-0000-0000000000d0"
+    # --- Auth ---
+    # "off" skips sign-in and puts every run in the demo workspace: local development only.
+    AUTH_MODE: Literal["supabase", "off"] = "supabase"
+    SUPABASE_URL: str | None = None  # verifies tokens against the project's JWKS
+    SUPABASE_JWT_SECRET: str | None = None  # legacy HS256 projects and tests
+    DEMO_WORKSPACE_ID: str = "00000000-0000-0000-0000-0000000000d0"  # matches supabase/seed.sql
+    RUNS_PER_HOUR: int = 10
 
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas"
