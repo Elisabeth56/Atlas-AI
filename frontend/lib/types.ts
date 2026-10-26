@@ -93,4 +93,5 @@ export interface ValidationReport {
   request_id: string;
   checks: ValidationCheck[];
   passed: boolean;
+  blocking: boolean;
 }

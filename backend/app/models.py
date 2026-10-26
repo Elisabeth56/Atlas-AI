@@ -146,6 +146,8 @@ class ValidationReport(Base):
     # list[ValidationCheck] serialized as JSONB
     checks: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # true when any check failed with severity "critical"; blocks writeback approval
+    blocking: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     request: Mapped[Request] = relationship(back_populates="validation_report")

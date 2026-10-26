@@ -13,20 +13,18 @@ os.environ.setdefault("DEMO_MODE", "true")
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
-from sqlalchemy import text  # noqa: E402
 
-from app.database import dispose_engine, get_engine, init_models  # noqa: E402
+from app import models  # noqa: E402, F401  (registers tables on Base)
+from app.database import Base, dispose_engine, get_engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 
 @pytest.fixture
 async def db_ready():
     """Fresh tables per test; the engine is disposed after so no connection outlives its event loop."""
-    await init_models()
     async with get_engine().begin() as conn:
-        await conn.execute(
-            text("TRUNCATE requests, agent_runs, artifacts, validation_reports CASCADE")
-        )
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
     yield
     await dispose_engine()
 

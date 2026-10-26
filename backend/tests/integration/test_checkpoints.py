@@ -6,7 +6,7 @@ import asyncio
 import pytest
 
 from app.database import session_scope
-from app.models import Request
+from app.models import Request, ValidationReport
 from app.routers import requests as requests_router
 
 
@@ -72,3 +72,54 @@ async def test_unknown_run_is_404(client, scheduled):
     )
 
     assert response.status_code == 404
+
+
+async def _seed_report(request_id: str, *, blocking: bool) -> None:
+    async with session_scope() as db:
+        db.add(
+            ValidationReport(
+                request_id=request_id,
+                checks=[
+                    {
+                        "name": "PII exposure",
+                        "passed": not blocking,
+                        "message": "card_last4 is not masked",
+                        "severity": "critical",
+                    }
+                ],
+                passed=not blocking,
+                blocking=blocking,
+            )
+        )
+
+
+async def test_critical_qa_finding_blocks_writeback_approval(client, scheduled):
+    request_id = await _seed("awaiting_writeback_approval")
+    await _seed_report(request_id, blocking=True)
+
+    response = await client.post(f"/api/requests/{request_id}/writeback/approve")
+
+    assert response.status_code == 409
+    assert "critical" in response.json()["detail"]
+    assert scheduled == []
+
+
+async def test_critical_qa_finding_still_allows_skip(client, scheduled):
+    request_id = await _seed("awaiting_writeback_approval")
+    await _seed_report(request_id, blocking=True)
+
+    response = await client.post(f"/api/requests/{request_id}/writeback/skip")
+
+    assert response.status_code == 202
+    assert scheduled == [("writeback", request_id)]
+
+
+async def test_clean_qa_allows_approval_and_exposes_flag(client, scheduled):
+    request_id = await _seed("awaiting_writeback_approval")
+    await _seed_report(request_id, blocking=False)
+
+    report = await client.get(f"/api/requests/{request_id}/validation")
+    response = await client.post(f"/api/requests/{request_id}/writeback/approve")
+
+    assert report.json()["blocking"] is False
+    assert response.status_code == 202

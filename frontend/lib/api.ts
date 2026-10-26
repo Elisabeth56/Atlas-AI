@@ -255,6 +255,7 @@ function mockValidation(requestId: string): ValidationReport {
   return {
     request_id: requestId,
     passed: false,
+    blocking: true,
     checks: [
       {
         name: "Schema compatibility",
