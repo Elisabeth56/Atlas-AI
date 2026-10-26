@@ -1,36 +1,26 @@
-import { Users, Target, Lock, Wallet, Clock, FileCode2 } from "lucide-react";
+import { ShieldCheck, Database, ListChecks, FileCode2 } from "lucide-react";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 
 const features = [
   {
-    icon: Users,
-    title: "Reviewable by design",
-    body: "Agents never touch production directly. Everything lands as a pull request with a diff, a rationale and a rollback path.",
+    icon: ShieldCheck,
+    title: "You approve twice",
+    body: "Review the datasets Atlas matched before it writes code, and review the output before anything goes back to DataHub.",
   },
   {
-    icon: Target,
-    title: "Lineage-aware reasoning",
-    body: "Atlas plans against a live dependency graph, so a fix upstream accounts for every downstream model and dashboard.",
+    icon: Database,
+    title: "Grounded in your catalog",
+    body: "Models are written against the schemas DataHub returns, and the run records which datasets it used and why.",
   },
   {
-    icon: Lock,
-    title: "Runs in your perimeter",
-    body: "Deploy inside your own cloud account. Credentials stay yours and your data is never used to train models.",
-  },
-  {
-    icon: Wallet,
-    title: "Cost is a first-class metric",
-    body: "Every plan estimates compute before it runs, and the Ledger agent works continuously to keep spend under budget.",
-  },
-  {
-    icon: Clock,
-    title: "Minutes, not sprints",
-    body: "Median incident repair is three minutes. New source onboarding that took a quarter now closes in an afternoon.",
+    icon: ListChecks,
+    title: "Checks that don't guess",
+    body: "QA is deterministic code. The same output gets the same verdict every time, with the failing file and column named.",
   },
   {
     icon: FileCode2,
-    title: "Your stack, your standards",
-    body: "Atlas writes in the conventions of your repo — naming, folder structure, testing patterns and style guides included.",
+    title: "Plain dbt out",
+    body: "Staging and mart models, tests in schema.yml, an analysis query and markdown docs, ready to drop into a dbt project.",
   },
 ];
 
@@ -41,23 +31,13 @@ export function WhyAtlas() {
         <div>
           <Eyebrow>Why Atlas AI</Eyebrow>
           <h2 className="mt-6 text-[36px] font-bold leading-[1.15] tracking-tight text-text-heading sm:text-[42px]">
-            Autonomy you can actually put in front of an auditor
+            Generated code that shows its working
           </h2>
           <p className="mt-5 text-[16px] leading-relaxed text-text-body">
-            Most tools generate code. Atlas takes responsibility for the
-            outcome — proving each change is safe before it ever reaches a
-            consumer.
+            Every run keeps a record of the datasets it matched, the checks
+            it ran and what it wants to write back, so you can see why the
+            code looks the way it does.
           </p>
-          <div className="mt-10 flex gap-10 border-t border-border-hairline pt-6">
-            <div>
-              <p className="text-[13px] text-text-body">Median repair time</p>
-              <p className="mt-1 text-[28px] font-bold text-text-heading">3m 12s</p>
-            </div>
-            <div>
-              <p className="text-[13px] text-text-body">Changes shipped as PRs</p>
-              <p className="mt-1 text-[28px] font-bold text-text-heading">100%</p>
-            </div>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">

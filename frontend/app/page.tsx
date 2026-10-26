@@ -5,7 +5,6 @@ import { WhoItsFor } from "@/components/landing/WhoItsFor";
 import { AgentFleet } from "@/components/landing/AgentFleet";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { WhyAtlas } from "@/components/landing/WhyAtlas";
-import { Testimonials } from "@/components/landing/Testimonials";
 import { FAQ } from "@/components/landing/FAQ";
 import { ClosingCTA } from "@/components/landing/ClosingCTA";
 
@@ -19,7 +18,6 @@ export default function Home() {
         <AgentFleet />
         <HowItWorks />
         <WhyAtlas />
-        <Testimonials />
         <FAQ />
         <ClosingCTA />
       </main>

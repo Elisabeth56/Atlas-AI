@@ -6,28 +6,24 @@ import { Eyebrow } from "@/components/ui/Eyebrow";
 
 const faqs = [
   {
-    q: "Can Atlas AI write directly to production?",
-    a: "No. Every agent-authored change lands as a pull request with a diff, a rationale and a rollback path. Nothing merges without human approval unless you explicitly configure auto-merge for a narrow, low-risk policy.",
+    q: "Does Atlas run the SQL it writes?",
+    a: "No. It generates files and checks them statically. Nothing touches your warehouse, and the only thing it can write is metadata in DataHub, after you approve.",
   },
   {
-    q: "Which platforms does Atlas connect to?",
-    a: "Snowflake, BigQuery, Databricks and Postgres for warehouses; dbt, Airflow, Dagster and Kafka for transformation and orchestration — with more connectors added regularly.",
+    q: "What does it need from me?",
+    a: "A DataHub instance with your datasets ingested and an access token. Without one, the demo runs against a sample catalog of Stripe and Postgres tables.",
   },
   {
-    q: "Where does our data live?",
-    a: "Atlas deploys inside your own cloud account. Your credentials and data never leave your perimeter, and nothing is used to train models.",
+    q: "Which models does it use?",
+    a: "Open models on free inference tiers, starting with Llama 3.3 70B on Groq. If a provider rate-limits a call, the next one in the chain takes over.",
   },
   {
-    q: "How long does implementation take?",
-    a: "Most teams are connected and mapped within a day. Agents start in a read-only advisory mode before you grant write access to any dataset.",
+    q: "What happens if the output is wrong?",
+    a: "QA names the file and the problem, such as a column that doesn't exist in the source schema. A critical finding blocks writeback until it's resolved.",
   },
   {
-    q: "What happens if an agent gets it wrong?",
-    a: "Every change ships as a reviewable PR with an estimated cost and blast radius, so mistakes are caught before merge. Post-merge, the Repair agent can revert or patch automatically.",
-  },
-  {
-    q: "How is Atlas AI priced?",
-    a: "Pricing is based on managed pipeline volume and agent activity. Talk to us for a plan sized to your warehouse footprint.",
+    q: "Can I skip the DataHub writeback?",
+    a: "Yes. Skipping finishes the run with every artifact intact. DataHub is only changed when you click approve.",
   },
 ];
 
@@ -40,11 +36,11 @@ export function FAQ() {
         <div>
           <Eyebrow>Questions</Eyebrow>
           <h2 className="mt-6 text-[36px] font-bold leading-[1.15] tracking-tight text-text-heading sm:text-[42px]">
-            What teams ask before switching on autonomy
+            Questions worth asking first
           </h2>
           <p className="mt-5 text-[16px] leading-relaxed text-text-body">
-            If something here isn&apos;t covered, our engineers will answer it
-            live during a demo.
+            The short version: Atlas writes code and metadata, never data, and
+            asks before it changes anything.
           </p>
         </div>
 

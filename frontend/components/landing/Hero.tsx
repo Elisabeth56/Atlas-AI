@@ -2,26 +2,18 @@ import Link from "next/link";
 import { ArrowRight, Play, ShieldCheck } from "lucide-react";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 
-const stats = [
-  { value: "94%", label: "Pipeline incidents auto-resolved" },
-  { value: "11x", label: "Faster time-to-first-model" },
-  { value: "38%", label: "Average warehouse spend reclaimed" },
-];
-
-const logos = ["Snowflake", "BigQuery", "Databricks", "dbt", "Airflow", "Dagster", "Kafka", "Postgres"];
-
 const dataHubPoints = [
   {
     label: "No guessed schemas",
-    body: "Every column, type and constraint Atlas writes against comes from DataHub's live schema registry, not a model's best guess.",
+    body: "Generated SQL is checked against the columns DataHub records for each source dataset.",
   },
   {
     label: "No guessed owners",
-    body: "Ownership, on-call routing and approval chains are read directly from DataHub, so PRs land with the right reviewer automatically.",
+    body: "Documentation names the owners DataHub has on record, not ones a model made up.",
   },
   {
     label: "No guessed lineage",
-    body: "Atlas plans against DataHub's real dependency graph, so a fix upstream correctly accounts for every model and dashboard downstream.",
+    body: "Approved runs write lineage from each source to the model Atlas built back into DataHub.",
   },
 ];
 
@@ -40,41 +32,32 @@ export function Hero() {
 
       <div className="relative mx-auto max-w-[800px] px-6 pt-20 pb-16 text-center lg:px-10 lg:pt-28">
         <div className="flex justify-center">
-          <Eyebrow>Autonomous data engineering</Eyebrow>
+          <Eyebrow>Data engineering from a sentence</Eyebrow>
         </div>
         <h1 className="mx-auto mt-6 text-[44px] font-bold leading-[1.08] tracking-tight text-text-heading sm:text-[56px] lg:text-[64px]">
-          Your data platform,{" "}
-          <span className="text-accent">operated by agents</span> that never
-          sleep.
+          Ask for a pipeline.{" "}
+          <span className="text-accent">Get dbt you can check.</span>
         </h1>
         <p className="mx-auto mt-6 max-w-lg text-[16px] leading-relaxed text-text-body">
-          Atlas AI plans, writes, tests and repairs production pipelines
-          across your warehouse and lakehouse. Every change ships as
-          reviewable code with lineage, contracts and rollback built in.
+          Describe the pipeline you need. Atlas finds the source datasets in
+          DataHub and writes the dbt models, SQL, tests and docs against
+          their real columns.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
           <Link href="/demo" className="btn-primary">
-            Book a demo <ArrowRight className="h-4 w-4" />
+            Try the demo <ArrowRight className="h-4 w-4" />
           </Link>
           <Link href="/agents" className="btn-secondary">
-            <Play className="h-3.5 w-3.5" /> Watch agents run
+            <Play className="h-3.5 w-3.5" /> Watch a run
           </Link>
         </div>
 
         <p className="mx-auto mt-6 flex items-center justify-center gap-2 text-[13px] text-text-muted">
           <ShieldCheck className="h-4 w-4 text-accent" />
-          Deployed inside your VPC · No training on customer data
+          Nothing is written back to DataHub until you approve it
         </p>
 
-        <div className="mx-auto mt-14 grid max-w-lg grid-cols-3 gap-8 border-t border-border-hairline pt-8">
-          {stats.map((s) => (
-            <div key={s.label}>
-              <p className="text-[32px] font-bold text-text-heading">{s.value}</p>
-              <p className="mt-1 text-[13px] leading-snug text-text-body">{s.label}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
       <div className="border-y border-border-hairline bg-bg-alt py-16">
@@ -86,10 +69,9 @@ export function Hero() {
             Agents are only as trustworthy as their metadata
           </h2>
           <p className="mx-auto mt-4 max-w-lg text-[15px] leading-relaxed text-text-body">
-            Most AI coding tools infer schema and ownership from context and
-            hope it's right. Atlas doesn't guess — every decision it makes is
-            grounded in DataHub, the metadata platform your team already
-            treats as source of truth.
+            A model writing SQL from memory will invent column names. Atlas
+            looks up each dataset's schema, owners and tags in DataHub first,
+            and writes against what it finds.
           </p>
 
           <div className="mx-auto mt-10 grid max-w-2xl grid-cols-1 gap-8 text-left sm:grid-cols-3">
@@ -103,18 +85,6 @@ export function Hero() {
         </div>
       </div>
 
-      <div className="bg-bg-base py-10">
-        <p className="text-center font-mono-atlas text-[11px] uppercase tracking-[0.15em] text-text-muted">
-          Native integrations across the modern data stack
-        </p>
-        <div className="mx-auto mt-6 flex max-w-[1100px] flex-wrap items-center justify-center gap-x-12 gap-y-4 px-6">
-          {logos.map((l) => (
-            <span key={l} className="text-[15px] font-medium text-text-body-strong">
-              {l}
-            </span>
-          ))}
-        </div>
-      </div>
     </section>
   );
 }
