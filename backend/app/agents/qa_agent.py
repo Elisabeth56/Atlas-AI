@@ -83,7 +83,7 @@ class QAAgent(Agent):
         # every dbt_model/sql file must reference at least one column name
         # that actually exists in the matched DataHub schemas. Full
         # dialect-aware column-resolution (accounting for CTEs, aliases,
-        # computed columns) is out of scope for a hackathon QA pass and
+        # computed columns) is out of scope for this QA pass and
         # would need a real SQL AST — see README "Future Improvements".
         model_files = [f for f in files if f.kind in ("dbt_model", "sql")]
         ungrounded: list[str] = []

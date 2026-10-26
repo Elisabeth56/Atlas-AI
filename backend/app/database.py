@@ -74,7 +74,7 @@ async def session_scope() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_models() -> None:
     """
-    Create all tables if they don't exist. Adequate for hackathon velocity;
+    Create all tables if they don't exist. Adequate for a first version;
     swap for Alembic migrations before this becomes a real product (see
     README "Future Improvements").
     """

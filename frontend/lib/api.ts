@@ -3,7 +3,7 @@ import { PIPELINE } from "@/lib/pipeline";
 
 // The deployed Vercel build defaults to a client-side simulation so /demo
 // and /new work reliably without depending on a live backend — Render's
-// free tier cold-starts too slowly (30s+) for a hackathon demo. The
+// free tier cold-starts too slowly (30s+) for a reliable demo. The
 // simulation mirrors the real six-agent pipeline including the two
 // human-in-the-loop checkpoints — see hooks/useRunStream.ts.
 //
