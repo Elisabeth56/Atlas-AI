@@ -49,7 +49,7 @@ async def main() -> None:
     server_params = StdioServerParameters(command="mcp-server-datahub", args=[], env=env)
 
     print(f"Connecting to mcp-server-datahub (GMS: {gms_url})...\n")
-    async with stdio_client(server_params) as (read, write):
+    async with stdio_client(server_params) as (read, write):  # noqa: SIM117 — session needs the streams
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = await session.list_tools()

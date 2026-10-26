@@ -31,3 +31,12 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# FastAPI's Depends() in default args is the framework's idiom, not a bug.
+ignore = ["B008", "E501"]

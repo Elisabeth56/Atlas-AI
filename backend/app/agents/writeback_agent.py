@@ -42,7 +42,7 @@ class WritebackAgent(Agent):
         edges_added = 0
         # Chain the matched datasets into a simple upstream->downstream
         # walk (source datasets feed the mart the Data Engineer built).
-        for upstream, downstream in zip(matched_datasets, matched_datasets[1:]):
+        for upstream, downstream in zip(matched_datasets, matched_datasets[1:], strict=False):
             await ctx.datahub.emit_lineage(upstream.urn, downstream.urn)
             edges_added += 1
 

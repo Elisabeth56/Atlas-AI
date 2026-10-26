@@ -5,7 +5,7 @@ rather than hallucinating table/column names."""
 from __future__ import annotations
 
 from app.agents.base import Agent, AgentResult, RunContext
-from app.schemas import MatchedDataset, MetadataAnalystInput, MetadataAnalystOutput
+from app.schemas import MetadataAnalystOutput
 
 _SYSTEM_PROMPT = """You are the Metadata Analyst agent in Atlas AI. You are \
 given a goal, a list of target entities, and a set of candidate datasets \
@@ -42,7 +42,6 @@ class MetadataAnalystAgent(Agent):
             f"retrieved {len(candidates)} candidate datasets from DataHub"
         )
 
-        agent_input = MetadataAnalystInput(goal=goal, entities=entities)
         user_prompt = (
             f"Goal: {goal}\n"
             f"Target entities: {entities}\n"
