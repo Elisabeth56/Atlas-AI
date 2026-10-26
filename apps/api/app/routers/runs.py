@@ -1,4 +1,5 @@
-"""Run routes. Every route is scoped to the caller's workspace; a run in another workspace is a 404.
+"""Run routes. Endpoints only record decisions and queue work; app/worker.py runs it.
+Every route is scoped to the caller's workspace; a run in another workspace is a 404.
 
   GET  /api/runs                          recent runs, newest first
   POST /api/runs                          start a run
@@ -15,7 +16,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,7 +26,6 @@ from app.config import get_settings
 from app.database import get_db
 from app.errors import AppError
 from app.models import Artifact, Run, ValidationReport
-from app.orchestrator import resume_generation_phase, resume_writeback_phase, run_context_phase
 from app.schemas import (
     ArtifactBundleOut,
     CreateRunIn,
@@ -56,16 +56,16 @@ async def list_runs(
 @router.post("", response_model=CreateRunOut, status_code=201)
 async def create_run(
     body: CreateRunIn,
-    background_tasks: BackgroundTasks,
     caller: Caller = Depends(current_caller),
     db: AsyncSession = Depends(get_db),
 ) -> CreateRunOut:
     await _check_rate_limit(db, caller)
-    run = Run(prompt=body.prompt, status="pending", workspace_id=caller.workspace_id, created_by=caller.user_id)
+    run = Run(
+        prompt=body.prompt, status="pending", phase="context",  # queued for the worker
+        workspace_id=caller.workspace_id, created_by=caller.user_id,
+    )
     db.add(run)
     await db.commit()
-    # runs after the response is sent; the phase pauses itself at the first checkpoint
-    background_tasks.add_task(_run_and_log_errors, run_context_phase, run.id, body.prompt)
     return CreateRunOut(run_id=run.id)
 
 
@@ -114,45 +114,41 @@ async def get_validation(
 
 @router.post("/{run_id}/context/accept", status_code=202)
 async def accept_context(
-    run_id: str, background_tasks: BackgroundTasks,
+    run_id: str,
     caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
-    await _claim(db, run_id, caller, "awaiting_context_approval", context_mode="grounded")
-    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, run_id)
+    await _claim(db, run_id, caller, "awaiting_context_approval", phase="generation", context_mode="grounded")
     return {"status": "resuming"}
 
 
 @router.post("/{run_id}/context/start-fresh", status_code=202)
 async def start_fresh(
-    run_id: str, background_tasks: BackgroundTasks,
+    run_id: str,
     caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
-    await _claim(db, run_id, caller, "awaiting_context_approval", context_mode="fresh")
-    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, run_id)
+    await _claim(db, run_id, caller, "awaiting_context_approval", phase="generation", context_mode="fresh")
     return {"status": "resuming"}
 
 
 @router.post("/{run_id}/writeback/approve", status_code=202)
 async def approve_writeback(
-    run_id: str, background_tasks: BackgroundTasks,
+    run_id: str,
     caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
     await _owned_run(db, run_id, caller)
     report = await db.scalar(select(ValidationReport).where(ValidationReport.run_id == run_id))
     if report is not None and report.blocking:
         raise AppError(409, "qa_blocking", "QA found critical issues. Fix them or skip writeback.")
-    await _claim(db, run_id, caller, "awaiting_writeback_approval", writeback_mode="approved")
-    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, run_id)
+    await _claim(db, run_id, caller, "awaiting_writeback_approval", phase="writeback", writeback_mode="approved")
     return {"status": "resuming"}
 
 
 @router.post("/{run_id}/writeback/skip", status_code=202)
 async def skip_writeback(
-    run_id: str, background_tasks: BackgroundTasks,
+    run_id: str,
     caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
-    await _claim(db, run_id, caller, "awaiting_writeback_approval", writeback_mode="skipped")
-    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, run_id)
+    await _claim(db, run_id, caller, "awaiting_writeback_approval", phase="writeback", writeback_mode="skipped")
     return {"status": "resuming"}
 
 
@@ -177,11 +173,14 @@ async def _owned_run(db: AsyncSession, run_id: str, caller: Caller) -> Run:
 
 
 async def _claim(db: AsyncSession, run_id: str, caller: Caller, expected: str, **changes: str) -> None:
-    """Moves a run out of a checkpoint in one statement, so two concurrent clicks can't both win."""
+    """Moves a run out of a checkpoint and queues its next phase in one statement.
+
+    Two concurrent clicks can't both win, and the job starts unlocked with a fresh attempt count.
+    """
     result = await db.execute(
         update(Run)
         .where(Run.id == run_id, Run.workspace_id == caller.workspace_id, Run.status == expected)
-        .values(status="running", **changes)
+        .values(status="running", locked_by=None, locked_until=None, attempts=0, **changes)
         .returning(Run.id)
     )
     if result.scalar_one_or_none() is not None:
@@ -193,13 +192,6 @@ async def _claim(db: AsyncSession, run_id: str, caller: Caller, expected: str, *
         "This run has already moved past that step. Refresh to see where it is.",
         {"status": current.status, "expected": expected},
     )
-
-
-async def _run_and_log_errors(phase_fn, *args) -> None:
-    try:
-        await phase_fn(*args)
-    except Exception:
-        logger.exception("phase %s crashed for %s", phase_fn.__name__, args)
 
 
 def _not_found() -> AppError:

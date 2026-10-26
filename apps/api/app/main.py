@@ -3,6 +3,7 @@ FastAPI application entrypoint.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from app.errors import install_error_handlers
 from app.orchestrator import init_datahub_mcp_gateway, shutdown_datahub_mcp_gateway
 from app.routers import runs as runs_router
 from app.routers import ws as ws_router
+from app.worker import run_forever
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +39,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # for MCP access. No-op (and doesn't crash boot) otherwise — see
     # orchestrator.init_datahub_mcp_gateway.
     await init_datahub_mcp_gateway()
+    stop = asyncio.Event()
+    worker = asyncio.create_task(run_forever(stop)) if settings.WORKER_ENABLED else None
     yield
+    stop.set()
+    if worker:
+        # a phase still running is abandoned here; its lease expires and the next boot resumes it
+        try:
+            await asyncio.wait_for(worker, timeout=5)
+        except TimeoutError:
+            worker.cancel()
     await shutdown_datahub_mcp_gateway()
     await dispose_engine()
     logger.info("atlas backend shut down")

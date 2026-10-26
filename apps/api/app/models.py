@@ -36,6 +36,11 @@ class Run(Base):
     context_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     writeback_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     trace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), default=_uuid)
+    # work owed to the worker (context | generation | writeback); null when nothing is queued
+    phase: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    locked_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(SmallInteger, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
