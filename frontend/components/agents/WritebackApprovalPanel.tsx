@@ -5,10 +5,19 @@ import { GitBranch, Check, X, ShieldAlert } from "lucide-react";
 import { getRequest, getValidationReport, approveWriteback, skipWriteback } from "@/lib/api";
 import type { MatchedDataset, ValidationCheck } from "@/lib/types";
 
+type GeneratedFile = { kind: string; filename: string };
+
+function martNames(files: GeneratedFile[]): string[] {
+  return files
+    .filter((f) => f.kind === "dbt_model" && f.filename.split("/").includes("marts"))
+    .map((f) => f.filename.split("/").pop()!.replace(/\.sql$/, ""));
+}
+
 export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
   const [loading, setLoading] = useState(true);
   const [datasets, setDatasets] = useState<MatchedDataset[]>([]);
   const [blockers, setBlockers] = useState<ValidationCheck[]>([]);
+  const [marts, setMarts] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState<"approve" | "skip" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,6 +29,9 @@ export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
         const run = req.agent_runs.find((r) => r.agent_name === "metadata_analyst");
         const matched = (run?.output_json?.matched_datasets as MatchedDataset[] | undefined) ?? [];
         setDatasets(matched);
+        const engineer = req.agent_runs.find((r) => r.agent_name === "data_engineer");
+        const files = (engineer?.output_json?.files as GeneratedFile[] | undefined) ?? [];
+        setMarts(martNames(files));
         if (report.blocking) {
           setBlockers(report.checks.filter((c) => !c.passed && c.severity === "critical"));
         }
@@ -57,11 +69,8 @@ export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
     }
   }
 
-  // Mirrors WritebackAgent's own logic (backend/app/agents/writeback_agent.py):
-  // it chains matched datasets upstream->downstream, so N datasets produce
-  // N-1 lineage edges. Computed here for preview purposes only — the actual
-  // write happens server-side after approval.
-  const lineageEdgeCount = Math.max(datasets.length - 1, 0);
+  // mirrors WritebackAgent: one edge from every matched source into every generated mart
+  const lineageEdgeCount = datasets.length * marts.length;
 
   return (
     <div className="card-atlas mt-5 p-6">
@@ -88,15 +97,18 @@ export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
           <p className="text-[13px] font-medium text-text-heading">This will:</p>
           <ul className="mt-2.5 flex flex-col gap-1.5 text-[13px] text-text-body">
             <li>
-              • Write documentation to{" "}
-              <span className="font-mono-atlas text-text-heading">
-                {datasets.map((d) => d.name).join(", ")}
-              </span>
+              • Document{" "}
+              <span className="font-mono-atlas text-text-heading">{marts.join(", ") || "no marts"}</span>{" "}
+              in DataHub
             </li>
             <li>
-              • Add {lineageEdgeCount} lineage edge{lineageEdgeCount === 1 ? "" : "s"} between
-              them
+              • Add {lineageEdgeCount} lineage edge{lineageEdgeCount === 1 ? "" : "s"} from{" "}
+              <span className="font-mono-atlas text-text-heading">
+                {datasets.map((d) => d.name).join(", ")}
+              </span>{" "}
+              into it
             </li>
+            <li>• Leave the source datasets&apos; own descriptions as they are</li>
           </ul>
         </div>
       )}
@@ -144,7 +156,7 @@ export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
           </button>
           <button
             onClick={handleApprove}
-            disabled={submitting !== null || loading || datasets.length === 0 || blockers.length > 0}
+            disabled={submitting !== null || loading || lineageEdgeCount === 0 || blockers.length > 0}
             className="btn-primary disabled:opacity-50"
           >
             <Check className="h-3.5 w-3.5" />

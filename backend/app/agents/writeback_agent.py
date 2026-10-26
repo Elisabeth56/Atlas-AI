@@ -1,57 +1,73 @@
-"""Write-back agent — the final pipeline stage. Pushes generated
-documentation and lineage edges back to DataHub, closing the loop so the
-knowledge graph reflects what Atlas AI just built. This agent does not
-call the LLM — it's a deterministic write step driven entirely by prior
-agents' structured output."""
+"""Writeback agent: records what Atlas built in DataHub. Deterministic, no LLM call.
+
+The generated docs describe the mart, so they go on the mart's entity. Source
+datasets only gain a lineage edge pointing at the mart; their descriptions are never touched.
+"""
 from __future__ import annotations
+
+from pathlib import PurePosixPath
 
 from app.agents.base import Agent, AgentResult, RunContext
 from app.schemas import GeneratedFile, MatchedDataset, WritebackOutput
 
+# dbt models live under DataHub's dbt platform, keyed by model name
+MART_URN = "urn:li:dataset:(urn:li:dataPlatform:dbt,{name},PROD)"
+
+
+def mart_names(files: list[GeneratedFile]) -> list[str]:
+    """Model names of the generated marts (dbt models under a marts/ folder)."""
+    return [
+        PurePosixPath(f.filename).stem
+        for f in files
+        if f.kind == "dbt_model" and "marts" in PurePosixPath(f.filename).parts
+    ]
+
+
+def doc_for(mart: str, docs: list[GeneratedFile]) -> str:
+    """The doc file written for this mart, falling back to all docs joined."""
+    for f in docs:
+        if PurePosixPath(f.filename).stem == mart:
+            return f.content
+    return "\n\n".join(f.content for f in docs)
+
 
 class WritebackAgent(Agent):
     name = "writeback"
-    critical = True
 
     async def run(self, ctx: RunContext) -> AgentResult:
-        metadata_output = ctx.prior("metadata_analyst")
-        documentation_output = ctx.prior("documentation")
-
-        matched_datasets = [
+        sources = [
             MatchedDataset.model_validate(d)
-            for d in metadata_output["matched_datasets"]
+            for d in ctx.prior("metadata_analyst")["matched_datasets"]
         ]
-        doc_files = [
-            GeneratedFile.model_validate(f) for f in documentation_output["files"]
+        files = [GeneratedFile.model_validate(f) for f in ctx.prior("data_engineer")["files"]]
+        docs = [
+            GeneratedFile.model_validate(f)
+            for f in ctx.prior("documentation")["files"]
+            if f["kind"] == "doc"
         ]
 
-        await ctx.emit_log("upserting metadata to DataHub")
-
+        await ctx.emit_log("upserting mart documentation to DataHub")
         urns_updated: list[str] = []
-        combined_docs = "\n\n".join(f.content for f in doc_files if f.kind == "doc")
-        for ds in matched_datasets:
-            await ctx.datahub.upsert_metadata(
-                ds.urn,
-                "institutionalMemory",
-                {"description": combined_docs[:4000]},
-            )
-            urns_updated.append(ds.urn)
-
-        await ctx.emit_log("emitting lineage edges")
-
         edges_added = 0
-        # Chain the matched datasets into a simple upstream->downstream
-        # walk (source datasets feed the mart the Data Engineer built).
-        for upstream, downstream in zip(matched_datasets, matched_datasets[1:], strict=False):
-            await ctx.datahub.emit_lineage(upstream.urn, downstream.urn)
-            edges_added += 1
+        for mart in mart_names(files):
+            mart_urn = MART_URN.format(name=mart)
+            await ctx.datahub.upsert_metadata(
+                mart_urn, "institutionalMemory", {"description": doc_for(mart, docs)[:4000]}
+            )
+            urns_updated.append(mart_urn)
+
+            await ctx.emit_log(f"emitting lineage into {mart}")
+            for source in sources:
+                await ctx.datahub.emit_lineage(source.urn, mart_urn)
+                edges_added += 1
 
         output = WritebackOutput(
             urns_updated=urns_updated,
             lineage_edges_added=edges_added,
-            summary=f"run complete · {len(urns_updated)} URNs updated, {edges_added} lineage edges added",
+            summary=(
+                f"run complete · {len(urns_updated)} marts documented, "
+                f"{edges_added} lineage edges added"
+            ),
         )
-
         await ctx.emit_log("run complete · artifacts ready")
-
         return AgentResult(summary=output.summary, data=output.model_dump())
