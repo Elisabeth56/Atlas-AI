@@ -46,7 +46,7 @@ class QAAgent(Agent):
         pii_check = await self._pii_exposure_check(ctx, matched_datasets, files)
         checks.append(pii_check)
         if not pii_check.passed:
-            await ctx.emit_log(f"flagged 1 PII column · masking required")
+            await ctx.emit_log("flagged 1 PII column · masking required")
         else:
             await ctx.emit_log("no unmasked PII columns detected")
 

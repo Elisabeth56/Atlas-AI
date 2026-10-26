@@ -29,7 +29,7 @@ the point to revisit this decision.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -364,7 +364,7 @@ async def _persist_stage_start(request_id: str, sequence: int, agent_name: str) 
     async with session_scope() as db:
         run = await _get_or_create_agent_run(db, request_id, sequence, agent_name)
         run.status = "started"
-        run.started_at = datetime.now(timezone.utc)
+        run.started_at = datetime.now(UTC)
 
 
 async def _persist_stage_success(
@@ -373,7 +373,7 @@ async def _persist_stage_success(
     async with session_scope() as db:
         run = await _get_or_create_agent_run(db, request_id, sequence, agent_name)
         run.status = "success"
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         run.output_json = result.data
 
 
@@ -383,7 +383,7 @@ async def _persist_stage_failure(
     async with session_scope() as db:
         run = await _get_or_create_agent_run(db, request_id, sequence, agent_name)
         run.status = "failed"
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         run.error = error
 
 
