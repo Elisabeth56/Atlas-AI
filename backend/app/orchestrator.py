@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import ws_hub
@@ -211,12 +211,18 @@ async def _load_prior_results(request_id: str) -> dict[str, dict]:
 
 
 async def _run_phase_agents(
-    request_id: str, ctx: RunContext, phase: list[tuple[int, Agent]]
+    request_id: str,
+    ctx: RunContext,
+    phase: list[tuple[int, Agent]],
+    *,
+    end_status: str | None = None,
 ) -> bool:
-    """Runs one phase's agents in order. Returns True if the phase
-    completed successfully, False if an agent failed (and the pipeline
-    should be marked failed rather than proceeding to the next phase)."""
-    for sequence, agent in phase:
+    """Runs one phase's agents in order. Returns False as soon as one fails.
+
+    `end_status` is committed in the same transaction as the last agent's output,
+    so the run never shows a finished phase with half its results missing.
+    """
+    for index, (sequence, agent) in enumerate(phase):
         ctx._current_agent_holder["name"] = agent.name  # type: ignore[attr-defined]
 
         await _persist_stage_start(request_id, sequence, agent.name)
@@ -233,7 +239,11 @@ async def _run_phase_agents(
             return False
 
         ctx.results[agent.name] = result.data
-        await _persist_stage_success(request_id, sequence, agent.name, result)
+        is_last = index == len(phase) - 1
+        await _persist_stage_success(
+            request_id, sequence, agent.name, result,
+            status=end_status if is_last else None,
+        )
         await ws_hub.broadcast(
             request_id,
             AgentRunEvent(agent=agent.name, status="done", result=WSResult(summary=result.summary)),
@@ -307,15 +317,13 @@ async def resume_generation_phase(request_id: str) -> None:
             "matched_datasets": [],
         }
 
-    ok = await _run_phase_agents(request_id, ctx, GENERATION_PHASE)
+    ok = await _run_phase_agents(
+        request_id, ctx, GENERATION_PHASE, end_status="awaiting_writeback_approval"
+    )
     if not ok:
         await _finalize_request(request_id, status="failed")
         return
 
-    await _persist_artifacts(request_id, ctx)
-    await _persist_validation_report(request_id, ctx)
-
-    await _set_status(request_id, "awaiting_writeback_approval")
     await ws_hub.broadcast(
         request_id,
         AgentRunEvent(agent="writeback", status="awaiting_approval"),
@@ -368,13 +376,27 @@ async def _persist_stage_start(request_id: str, sequence: int, agent_name: str) 
 
 
 async def _persist_stage_success(
-    request_id: str, sequence: int, agent_name: str, result: AgentResult
+    request_id: str,
+    sequence: int,
+    agent_name: str,
+    result: AgentResult,
+    *,
+    status: str | None = None,
 ) -> None:
+    """Saves a finished stage and everything it produced in one transaction."""
     async with session_scope() as db:
         run = await _get_or_create_agent_run(db, request_id, sequence, agent_name)
         run.status = "success"
         run.finished_at = datetime.now(UTC)
         run.output_json = result.data
+
+        if "files" in result.data:
+            await _replace_artifacts(db, request_id, agent_name, result.data["files"])
+        if agent_name == "qa":
+            await _replace_validation_report(db, request_id, result.data)
+        if status is not None:
+            request = await db.get(Request, request_id)
+            request.status = status
 
 
 async def _persist_stage_failure(
@@ -403,42 +425,40 @@ async def _get_or_create_agent_run(
     return run
 
 
-async def _persist_artifacts(request_id: str, ctx: RunContext) -> None:
-    data_engineer_files = [
-        GeneratedFile.model_validate(f)
-        for f in ctx.results.get("data_engineer", {}).get("files", [])
-    ]
-    documentation_files = [
-        GeneratedFile.model_validate(f)
-        for f in ctx.results.get("documentation", {}).get("files", [])
-    ]
-    all_files = data_engineer_files + documentation_files
-
-    async with session_scope() as db:
-        for f in all_files:
-            db.add(
-                Artifact(
-                    request_id=request_id,
-                    kind=f.kind,
-                    filename=f.filename,
-                    content=f.content,
-                )
-            )
-
-
-async def _persist_validation_report(request_id: str, ctx: RunContext) -> None:
-    qa_output = ctx.results.get("qa", {})
-    checks = qa_output.get("checks", [])
-    blocking = any(not c["passed"] and c["severity"] == "critical" for c in checks)
-    async with session_scope() as db:
+async def _replace_artifacts(
+    db: AsyncSession, request_id: str, agent_name: str, files: list[dict]
+) -> None:
+    """Swaps in this stage's files; deleting first makes a re-run replace, not duplicate."""
+    await db.execute(
+        delete(Artifact).where(
+            Artifact.request_id == request_id, Artifact.source_agent == agent_name
+        )
+    )
+    for raw in files:
+        f = GeneratedFile.model_validate(raw)
         db.add(
-            ValidationReport(
+            Artifact(
                 request_id=request_id,
-                checks=checks,
-                passed=qa_output.get("passed", False),
-                blocking=blocking,
+                source_agent=agent_name,
+                kind=f.kind,
+                filename=f.filename,
+                content=f.content,
             )
         )
+
+
+async def _replace_validation_report(db: AsyncSession, request_id: str, qa_output: dict) -> None:
+    checks = qa_output.get("checks", [])
+    blocking = any(not c["passed"] and c["severity"] == "critical" for c in checks)
+    await db.execute(delete(ValidationReport).where(ValidationReport.request_id == request_id))
+    db.add(
+        ValidationReport(
+            request_id=request_id,
+            checks=checks,
+            passed=qa_output.get("passed", False),
+            blocking=blocking,
+        )
+    )
 
 
 async def _set_status(request_id: str, status: str) -> None:

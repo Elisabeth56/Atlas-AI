@@ -121,6 +121,8 @@ class Artifact(Base):
     request_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("requests.id", ondelete="CASCADE")
     )
+    # the stage that produced this file; a re-run of that stage replaces its files
+    source_agent: Mapped[str] = mapped_column(String(32), nullable=False)
     # dbt_model | sql | test | doc | config  (matches ArtifactKind)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
