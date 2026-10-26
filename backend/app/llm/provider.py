@@ -2,8 +2,8 @@
 LLM provider abstraction.
 
 Every agent that needs a language model depends on this interface, never
-on a concrete SDK. This is what lets us run on Groq today, swap to
-Anthropic/OpenAI/local vLLM later, and unit-test agents against a fake
+on a concrete SDK. This is what lets the provider chain (chain.py) and
+the demo mock sit behind one contract, and lets us unit-test agents against a fake
 provider without any network calls.
 """
 from __future__ import annotations
@@ -33,9 +33,9 @@ class LLMProvider(ABC):
     async def complete(
         self,
         *,
-        system_prompt: str,
+        prompt_id: str,
         user_prompt: str,
         schema: type[T],
     ) -> T:
-        """Run a completion and parse+validate the result as `schema`."""
+        """Run the system prompt `prompt_id` (app/llm/prompts) and validate the result as `schema`."""
         raise NotImplementedError
