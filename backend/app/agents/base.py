@@ -36,6 +36,7 @@ class RunContext:
     datahub: DataHubGateway
     emit_log: EmitLog
     results: dict[str, dict[str, Any]] = field(default_factory=dict)
+    current_agent: str = ""
 
     def prior(self, agent_name: str) -> dict[str, Any]:
         """Fetch a prior agent's output dict, or raise a clear error if
@@ -58,21 +59,10 @@ class AgentResult:
 
 
 class Agent(ABC):
-    """
-    name: must exactly match a value in schemas.AgentId — it's used as
-          the WebSocket event's `agent` field and the DB row's
-          `agent_name`, so the frontend can map it straight to a pipeline
-          stage.
-    critical: if True, a failure here aborts the remaining pipeline
-              (the request is marked "failed"). If False, the pipeline
-              continues so later agents can still run against partial
-              output — no current agent sets this to False, but the hook
-              exists for future non-critical stages (e.g. an optional
-              cost-estimation agent).
-    """
+    """One pipeline stage. `name` must match a value in schemas.AgentId: it's the
+    WebSocket event's `agent` field and the agent_runs row's `agent_name`."""
 
     name: str
-    critical: bool = True
 
     @abstractmethod
     async def run(self, ctx: RunContext) -> AgentResult:

@@ -135,12 +135,8 @@ Atlas AI Agent
 DataHub MCP Server  (search · schema · lineage · profile · mutations)
       │
       ▼
-Your DataHub instance — which one depends on workspace mode:
-
-  demo mode  →  a pre-seeded demo DataHub instance
-  existing   →  your own DataHub, via DATAHUB_GMS_URL + DATAHUB_TOKEN
-  fresh      →  same mechanism as "existing" — point at an instance
-                you've started with nothing ingested yet
+Your DataHub instance, via DATAHUB_GMS_URL + DATAHUB_TOKEN
+(no URL set → the seeded sample catalog in mock_gateway.py)
 ```
 
 **Every DataHub read and write goes through MCP tool calls** to
@@ -151,12 +147,10 @@ are supported, writes aren't), so `WritebackAgent`'s lineage-edge emission
 falls back to a direct GraphQL call for that one operation specifically —
 documented in `app/datahub/mcp_gateway.py`. Everything else is MCP.
 
-A direct-REST gateway (`app/datahub/datahub_gateway.py`) and a
-zero-dependency mock gateway (`app/datahub/mock_gateway.py`) both still
-exist behind the same `DataHubGateway` interface — `direct` mode as a
-fallback if MCP isn't available, `mock` automatically whenever no
-`DATAHUB_GMS_URL` is configured at all, so the pipeline stays fully
-demoable without any external DataHub dependency.
+A mock gateway (`app/datahub/mock_gateway.py`) sits behind the same
+`DataHubGateway` interface and is used whenever no `DATAHUB_GMS_URL` is
+configured, so the pipeline runs end to end without a DataHub instance
+([ADR 006](docs/decisions/006-datahub-sample-catalog.md)).
 
 **Current scope: single-tenant.** `DATAHUB_GMS_URL`/`DATAHUB_TOKEN` are
 backend-level configuration — one DataHub connection, shared across every
@@ -168,10 +162,9 @@ moving connection details from environment variables into per-user/
 per-workspace storage — a `workspaces` table holding each user's
 `gms_url` + encrypted token, `DataHubMCPGateway` instantiated per-workspace
 rather than as a single global singleton (see `orchestrator.py`'s
-`init_datahub_mcp_gateway`), and a connection UI on the frontend (the
-"existing" vs. "fresh" distinction in workspace mode is exactly where that
-UI would live — see `DATAHUB_WORKSPACE_MODE` above, currently a labeling
-concept with no onboarding flow built around it yet).
+`init_datahub_mcp_gateway`), and a connection UI on the frontend
+([ADR 002](docs/decisions/002-supabase-database-and-auth.md) adds the
+`datahub_connections` table).
 
 See `backend/scripts/inspect_mcp_tools.py` — run it once your DataHub +
 MCP setup is live to print every real tool's input schema and verify it
@@ -433,17 +426,12 @@ each file is and why the QA report in there shows a genuine failure
   the project's own DataHub instance. Multi-tenant support (each user/org
   bringing their own DataHub) would need per-workspace connection storage
   and a per-workspace `DataHubMCPGateway` instance instead of the current
-  singleton, plus a connection-setup UI — see the DataHub integration
-  section above for where that fits into the existing workspace-mode
-  concept.
+  singleton, plus a connection-setup UI.
 - `mcp_gateway.py`'s tool call shapes are built from documentation, not
   verified against a live `mcp-server-datahub` instance — run
   `scripts/inspect_mcp_tools.py` first thing once yours is up.
 - No MCP mutation tool exists for lineage writes — `emit_lineage()` falls
   back to direct GraphQL for that one operation.
-- `DATAHUB_WORKSPACE_MODE=fresh` doesn't auto-provision a new DataHub
-  instance — it's a labeling distinction from `existing`, both connect to
-  whatever `DATAHUB_GMS_URL` points at.
 - Only the QA agent has unit tests; Planner, Metadata Analyst, Data
   Engineer, Documentation, and Writeback don't yet.
 - No Alembic migrations — `Base.metadata.create_all()` on startup, fine

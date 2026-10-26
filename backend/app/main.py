@@ -28,10 +28,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(
-        "starting atlas backend | llm_demo=%s datahub_access_mode=%s workspace_mode=%s",
+        "starting atlas backend | llm_demo=%s datahub_mode=%s",
         settings.llm_demo_mode,
-        settings.datahub_access_mode_effective,
-        settings.DATAHUB_WORKSPACE_MODE,
+        settings.datahub_mode,
     )
     await init_models()
     # Connects the long-lived MCP subprocess + session once, if configured
@@ -67,6 +66,5 @@ async def health() -> dict[str, str | bool]:
     return {
         "status": "ok",
         "llm_demo_mode": settings.llm_demo_mode,
-        "datahub_access_mode": settings.datahub_access_mode_effective,
-        "datahub_workspace_mode": settings.DATAHUB_WORKSPACE_MODE,
+        "datahub_mode": settings.datahub_mode,
     }
