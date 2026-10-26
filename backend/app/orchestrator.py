@@ -271,7 +271,7 @@ async def run_context_phase(request_id: str, prompt: str) -> None:
     )
 
 
-async def resume_generation_phase(request_id: str, *, context_mode: str) -> None:
+async def resume_generation_phase(request_id: str) -> None:
     """Phase 2: Data Engineer -> QA -> Documentation, then pause for the
     writeback checkpoint. `context_mode` ("grounded" or "fresh") is
     recorded but doesn't change which agents run — it changes what the
@@ -281,14 +281,14 @@ async def resume_generation_phase(request_id: str, *, context_mode: str) -> None
     omitting the step entirely."""
     async with session_scope() as db:
         request = await db.get(Request, request_id)
-        if request is None or request.status != "awaiting_context_approval":
+        # the endpoint already claimed the run (status=running, context_mode set)
+        if request is None or request.status != "running":
             logger.error(
-                "resume_generation_phase: request %s not awaiting context approval (status=%s)",
+                "resume_generation_phase: request %s not claimed (status=%s)",
                 request_id, request.status if request else "missing",
             )
             return
-        request.status = "running"
-        request.context_mode = context_mode
+        context_mode = request.context_mode
         prompt = request.prompt
 
     ctx = _make_context(request_id, prompt)
@@ -322,21 +322,21 @@ async def resume_generation_phase(request_id: str, *, context_mode: str) -> None
     )
 
 
-async def resume_writeback_phase(request_id: str, *, approved: bool) -> None:
+async def resume_writeback_phase(request_id: str) -> None:
     """Phase 3: Writeback, only if the human approved it. Skipping still
     marks the request complete — the generated artifacts already exist
     from phase 2 regardless of this decision; only DataHub itself is
     affected by approve vs. skip."""
     async with session_scope() as db:
         request = await db.get(Request, request_id)
-        if request is None or request.status != "awaiting_writeback_approval":
+        # the endpoint already claimed the run (status=running, writeback_mode set)
+        if request is None or request.status != "running":
             logger.error(
-                "resume_writeback_phase: request %s not awaiting writeback approval (status=%s)",
+                "resume_writeback_phase: request %s not claimed (status=%s)",
                 request_id, request.status if request else "missing",
             )
             return
-        request.status = "running"
-        request.writeback_mode = "approved" if approved else "skipped"
+        approved = request.writeback_mode == "approved"
         prompt = request.prompt
 
     if not approved:

@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -70,16 +70,29 @@ async def _run_and_log_errors(phase_fn, *args, **kwargs) -> None:
         )
 
 
-async def _require_status(db: AsyncSession, request_id: str, expected: str) -> Request:
-    request = await db.get(Request, request_id)
-    if request is None:
+async def _claim(db: AsyncSession, request_id: str, expected: str, **changes: str) -> None:
+    """Moves a run out of a checkpoint in one statement, so two concurrent clicks can't both win.
+
+    Raises 404 if the run doesn't exist and 409 if it isn't at `expected` (including when a
+    concurrent call claimed it first).
+    """
+    result = await db.execute(
+        update(Request)
+        .where(Request.id == request_id, Request.status == expected)
+        .values(status="running", **changes)
+        .returning(Request.id)
+    )
+    if result.scalar_one_or_none() is not None:
+        await db.commit()
+        return
+
+    current = await db.get(Request, request_id)
+    if current is None:
         raise HTTPException(status_code=404, detail="Request not found")
-    if request.status != expected:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Request is '{request.status}', expected '{expected}' for this action.",
-        )
-    return request
+    raise HTTPException(
+        status_code=409,
+        detail=f"Request is '{current.status}', expected '{expected}' for this action.",
+    )
 
 
 @router.post("/{request_id}/context/accept", status_code=202)
@@ -90,10 +103,8 @@ async def accept_context(
 ) -> dict[str, str]:
     """Human accepts DataHub's matched datasets as context. Resumes into
     the generation phase (Data Engineer -> QA -> Documentation)."""
-    await _require_status(db, request_id, "awaiting_context_approval")
-    background_tasks.add_task(
-        _run_and_log_errors, resume_generation_phase, request_id, context_mode="grounded"
-    )
+    await _claim(db, request_id, "awaiting_context_approval", context_mode="grounded")
+    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, request_id)
     return {"status": "resuming"}
 
 
@@ -107,10 +118,8 @@ async def start_fresh(
     found) and proceeds without grounding. Still resumes the same
     generation phase — the distinction is recorded via context_mode, and
     (in real/Groq mode) changes what the Data Engineer's prompt contains."""
-    await _require_status(db, request_id, "awaiting_context_approval")
-    background_tasks.add_task(
-        _run_and_log_errors, resume_generation_phase, request_id, context_mode="fresh"
-    )
+    await _claim(db, request_id, "awaiting_context_approval", context_mode="fresh")
+    background_tasks.add_task(_run_and_log_errors, resume_generation_phase, request_id)
     return {"status": "resuming"}
 
 
@@ -122,10 +131,8 @@ async def approve_writeback(
 ) -> dict[str, str]:
     """Human approves writing generated documentation + lineage back to
     DataHub. Resumes into the writeback phase."""
-    await _require_status(db, request_id, "awaiting_writeback_approval")
-    background_tasks.add_task(
-        _run_and_log_errors, resume_writeback_phase, request_id, approved=True
-    )
+    await _claim(db, request_id, "awaiting_writeback_approval", writeback_mode="approved")
+    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, request_id)
     return {"status": "resuming"}
 
 
@@ -138,10 +145,8 @@ async def skip_writeback(
     """Human declines writing back to DataHub. The request still
     completes — generated artifacts already exist from the generation
     phase; only DataHub itself is left untouched."""
-    await _require_status(db, request_id, "awaiting_writeback_approval")
-    background_tasks.add_task(
-        _run_and_log_errors, resume_writeback_phase, request_id, approved=False
-    )
+    await _claim(db, request_id, "awaiting_writeback_approval", writeback_mode="skipped")
+    background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, request_id)
     return {"status": "resuming"}
 
 
