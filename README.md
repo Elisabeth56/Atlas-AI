@@ -30,17 +30,17 @@ actually matter.
 DataHub (`datahub docker quickstart`) and prints every tool's real input
 schema — the same tools `app/datahub/mcp_gateway.py` calls into:
 
-![mcp tool schemas](docs/screenshots/mcp-tool-schemas.png)
+![mcp tool schemas](docs/mcp-tool-schemas.png)
 
 A live `search` call through MCP returns real DataHub results, confirming
 the gateway's call shapes match the server's actual contract:
 
-![mcp live search](docs/screenshots/mcp-live-search.png)
+![mcp live search](docs/mcp-live-search.png)
 
 DataHub UI at `localhost:9002` after `datahub docker quickstart`, which
 `mcp-server-datahub` and Atlas both talk to:
 
-![datahub ui](docs/screenshots/datahub-ui.png)
+![datahub ui](docs/datahub-ui.png)
 
 > The deployed Vercel URL runs the pipeline as a client-side simulation
 > against the same fixture data the backend uses in `DEMO_MODE`, so it
@@ -160,7 +160,7 @@ demoable without any external DataHub dependency.
 
 **Current scope: single-tenant.** `DATAHUB_GMS_URL`/`DATAHUB_TOKEN` are
 backend-level configuration — one DataHub connection, shared across every
-request. That's a deliberate hackathon-scoped simplification, not an
+request. That's a deliberate first-version simplification, not an
 architectural ceiling: today it's assumed to be *this* project's DataHub
 instance, configured once by whoever runs the backend. In production,
 different users/orgs would bring their own DataHub instance, which means
@@ -345,8 +345,8 @@ works, and vice versa.
 
 ## Deployment
 
-Two realistic paths for a hackathon submission. Pick based on time
-remaining.
+Hosting choices and their trade-offs are recorded in
+[ADR 007](docs/decisions/007-backend-hosting.md). Two paths:
 
 ### Option A — single VM, Docker Compose (fastest to get a real URL)
 
@@ -445,7 +445,7 @@ each file is and why the QA report in there shows a genuine failure
 - Only the QA agent has unit tests; Planner, Metadata Analyst, Data
   Engineer, Documentation, and Writeback don't yet.
 - No Alembic migrations — `Base.metadata.create_all()` on startup, fine
-  for a hackathon, not for a real deploy with existing data.
+  for a first version, not for a real deploy with existing data.
 - Demo-mode content is fixture-based (`MockLLMProvider` ignores prompt
   content), so "start fresh" vs. "grounded" context only changes actual
   generated output in real (Groq) mode, not demo mode — documented in

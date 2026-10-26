@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     # How Atlas talks to DataHub. "mcp" (default when DATAHUB_GMS_URL is
     # set) routes every read/write through mcp-server-datahub — this is
-    # the primary, hackathon-relevant path. "direct" falls back to raw
+    # the primary path. "direct" falls back to raw
     # GraphQL/REST (DataHubRestGateway) — kept as an escape hatch if the
     # MCP server isn't installed/working, not the intended default. "mock"
     # is forced automatically when no DATAHUB_GMS_URL is configured at
