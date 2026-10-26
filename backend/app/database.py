@@ -1,13 +1,4 @@
-"""
-Async database engine + session management.
-
-Postgres via asyncpg is the only supported driver — this is a deliberate
-simplification versus supporting both SQLite and Postgres: one code path,
-one set of column types (JSONB, etc.) that behave identically in dev and
-prod. Tests spin up a real Postgres (see tests/conftest.py) rather than
-faking it with SQLite, since JSONB / UUID semantics differ enough that a
-SQLite-backed test suite would give false confidence.
-"""
+"""Async engine and session helpers. Postgres (asyncpg) only, in dev, test and prod."""
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -58,11 +49,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 @asynccontextmanager
 async def session_scope() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Context-manager session for use *outside* the FastAPI request cycle —
-    the orchestrator runs as a detached background task, not inside a
-    request, so it can't use the `get_db` dependency.
-    """
+    """A committing session for code outside a request, like the orchestrator's phases."""
     async with _SessionFactory() as session:
         try:
             yield session
@@ -73,11 +60,7 @@ async def session_scope() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_models() -> None:
-    """
-    Create all tables if they don't exist. Adequate for a first version;
-    swap for Alembic migrations before this becomes a real product (see
-    README "Future Improvements").
-    """
+    """Creates missing tables. Replaced by Supabase migrations (ADR 002)."""
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

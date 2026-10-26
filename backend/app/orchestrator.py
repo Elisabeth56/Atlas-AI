@@ -1,30 +1,13 @@
 """
-Orchestrator — the core pipeline runner, split into three resumable
-phases with two genuine human-in-the-loop checkpoints between them:
+Pipeline runner: three phases separated by two human checkpoints.
 
-    [context phase]  Planner -> Metadata Analyst -> PAUSE (context checkpoint)
-                                                       |
-                              human: accept matched datasets, or start fresh
-                                                       v
-    [generation phase]  Data Engineer -> QA -> Documentation -> PAUSE (writeback checkpoint)
-                                                       |
-                              human: approve writeback, or skip it
-                                                       v
-    [writeback phase]  Writeback (only if approved) -> complete
+    context:     planner -> metadata_analyst          -> pause (accept / start fresh)
+    generation:  data_engineer -> qa -> documentation  -> pause (approve / skip writeback)
+    writeback:   writeback (only if approved)          -> complete
 
-Each phase is its own background task, not one continuous loop — the
-pipeline genuinely stops and the process returns to idle between phases.
-Resuming a later phase reconstructs `RunContext.results` from what's
-already persisted in `agent_runs.output_json` rather than holding
-anything in memory across the pause, since nothing guarantees the same
-process (or even the same server, in a future multi-instance deploy) is
-what resumes it.
-
-Still deliberately plain async/await per phase, not a graph framework —
-see the original note this replaced: three fixed, non-cyclic phases don't
-need LangGraph's machinery either. If a future agent needs to loop back
-within a phase (e.g. QA rejecting and re-triggering Data Engineer), that's
-the point to revisit this decision.
+Each phase runs as its own task. Nothing is held in memory across a pause: a resuming
+phase rebuilds earlier results from agent_runs.output_json. Plain async/await, no graph
+framework: the phases are fixed and never loop.
 """
 from __future__ import annotations
 
@@ -44,7 +27,6 @@ from app.agents.qa_agent import QAAgent
 from app.agents.writeback_agent import WritebackAgent
 from app.config import get_settings
 from app.database import session_scope
-from app.datahub.datahub_gateway import DataHubRestGateway
 from app.datahub.gateway import DataHubGateway
 from app.datahub.mcp_gateway import DataHubMCPGateway
 from app.datahub.mock_gateway import MockDataHubGateway
@@ -57,9 +39,7 @@ from app.schemas import AGENT_SEQUENCE, AgentRunEvent, GeneratedFile, WSResult
 
 logger = logging.getLogger("atlas.orchestrator")
 
-# Fixed pipeline order — index doubles as AgentRun.sequence. Split into
-# three phase slices below; this master list stays the single source of
-# truth for ordering and sequence numbers.
+# index doubles as AgentRun.sequence; the frontend stepper renders the same order
 PIPELINE: list[Agent] = [
     PlannerAgent(),
     MetadataAnalystAgent(),
@@ -69,10 +49,7 @@ PIPELINE: list[Agent] = [
     WritebackAgent(),
 ]
 
-assert [a.name for a in PIPELINE] == AGENT_SEQUENCE, (
-    "PIPELINE order must exactly match schemas.AGENT_SEQUENCE — the "
-    "frontend's stepper renders stages in that fixed order."
-)
+assert [a.name for a in PIPELINE] == AGENT_SEQUENCE, "PIPELINE must match AGENT_SEQUENCE"
 
 CONTEXT_PHASE: list[tuple[int, Agent]] = list(enumerate(PIPELINE))[0:2]
 GENERATION_PHASE: list[tuple[int, Agent]] = list(enumerate(PIPELINE))[2:5]
@@ -89,20 +66,15 @@ def _build_llm_provider() -> LLMProvider:
     return ProviderChain(providers, timeout_seconds=settings.LLM_TIMEOUT_SECONDS)
 
 
-# Singleton for the MCP gateway specifically — it holds a live subprocess
-# + session that's expensive to open (spawns mcp-server-datahub, does the
-# MCP initialize handshake) and must be reused across every phase of every
-# request, not reconnected per phase transition. Mock/direct gateways are
-# cheap to construct fresh each time and don't need this treatment.
+# One MCP connection (a subprocess plus session) shared by every phase of every run.
 _mcp_gateway: DataHubMCPGateway | None = None
 
 
 async def init_datahub_mcp_gateway() -> None:
-    """Call once from FastAPI's lifespan at startup. No-op if DataHub
-    isn't configured for MCP access — see Settings.datahub_access_mode_effective."""
+    """Connects the shared MCP gateway at startup. No-op when DataHub isn't configured."""
     global _mcp_gateway
     settings = get_settings()
-    if settings.datahub_access_mode_effective != "mcp":
+    if settings.datahub_mode != "mcp":
         return
 
     gateway = DataHubMCPGateway(
@@ -114,10 +86,7 @@ async def init_datahub_mcp_gateway() -> None:
         await gateway.connect()
         _mcp_gateway = gateway
     except Exception:
-        # Don't crash app boot over this — log loudly and let gateway
-        # selection fall through to constructing an unconnected instance
-        # per-call, which will fail clearly at first tool call with a
-        # specific error rather than a silent startup failure.
+        # don't block boot; calls will fail with a clear error until DataHub is reachable
         logger.exception(
             "Failed to connect DataHubMCPGateway at startup — DataHub MCP "
             "calls will fail until this is fixed. Run "
@@ -136,65 +105,38 @@ async def shutdown_datahub_mcp_gateway() -> None:
 
 def _build_datahub_gateway() -> DataHubGateway:
     settings = get_settings()
-    mode = settings.datahub_access_mode_effective
-
-    if mode == "mock":
-        logger.info("orchestrator: using MockDataHubGateway (no DATAHUB_GMS_URL configured)")
+    if settings.datahub_mode == "mock":
         return MockDataHubGateway()
-
-    if mode == "mcp":
-        if _mcp_gateway is not None:
-            return _mcp_gateway
-        # Startup connection failed or hasn't run yet (e.g. under a test
-        # harness that skips lifespan) — construct unconnected so the
-        # failure surfaces clearly at the first actual tool call instead
-        # of here.
-        logger.warning(
-            "DataHubMCPGateway singleton not connected — constructing a "
-            "fresh instance that will fail at first use. Check startup logs."
-        )
-        return DataHubMCPGateway(
-            gms_url=settings.DATAHUB_GMS_URL,  # type: ignore[arg-type]
-            token=settings.DATAHUB_TOKEN,
-            timeout_seconds=settings.DATAHUB_TIMEOUT_SECONDS,
-        )
-
-    logger.info("orchestrator: using DataHubRestGateway url=%s (DATAHUB_ACCESS_MODE=direct)", settings.DATAHUB_GMS_URL)
-    return DataHubRestGateway(
-        gms_url=settings.DATAHUB_GMS_URL,  # type: ignore[arg-type]  # guarded by mode check above
+    if _mcp_gateway is not None:
+        return _mcp_gateway
+    logger.warning("MCP gateway not connected at startup; this run's DataHub calls will fail")
+    return DataHubMCPGateway(
+        gms_url=settings.DATAHUB_GMS_URL,  # type: ignore[arg-type]  # set when mode is mcp
         token=settings.DATAHUB_TOKEN,
         timeout_seconds=settings.DATAHUB_TIMEOUT_SECONDS,
     )
 
 
 def _make_context(request_id: str, prompt: str) -> RunContext:
-    llm = _build_llm_provider()
-    datahub = _build_datahub_gateway()
-    current_agent = {"name": PIPELINE[0].name}
+    ctx: RunContext
 
     async def emit_log(text: str) -> None:
-        # Structured server-side logging, not WS — see README "Execution
-        # Flow" for why: useRunStream hardcodes the "started" log line's
-        # text client-side, so per-line progress has no wire format to
-        # ride on. This still gives full request_id + agent tracing.
         logger.info(
-            "agent_log request_id=%s agent=%s message=%s",
-            request_id, current_agent["name"], text,
+            "agent_log request_id=%s agent=%s message=%s", request_id, ctx.current_agent, text
         )
 
     ctx = RunContext(
-        request_id=request_id, prompt=prompt, llm=llm, datahub=datahub, emit_log=emit_log,
+        request_id=request_id,
+        prompt=prompt,
+        llm=_build_llm_provider(),
+        datahub=_build_datahub_gateway(),
+        emit_log=emit_log,
     )
-    ctx._current_agent_holder = current_agent  # type: ignore[attr-defined]
     return ctx
 
 
 async def _load_prior_results(request_id: str) -> dict[str, dict]:
-    """
-    Rebuild RunContext.results from whatever's already persisted, for a
-    phase resuming after a pause. Only successful stages contribute —
-    a phase should never resume on top of a failed or incomplete one.
-    """
+    """Rebuilds RunContext.results from successful stages, for a phase resuming after a pause."""
     async with session_scope() as db:
         result = await db.execute(
             select(AgentRun)
@@ -218,7 +160,7 @@ async def _run_phase_agents(
     so the run never shows a finished phase with half its results missing.
     """
     for index, (sequence, agent) in enumerate(phase):
-        ctx._current_agent_holder["name"] = agent.name  # type: ignore[attr-defined]
+        ctx.current_agent = agent.name
 
         await _persist_stage_start(request_id, sequence, agent.name)
         await ws_hub.broadcast(request_id, AgentRunEvent(agent=agent.name, status="started"))
@@ -246,16 +188,8 @@ async def _run_phase_agents(
     return True
 
 
-# --- Phase entry points ---------------------------------------------------
-# Each is invoked as its own FastAPI background task — see routers/requests.py.
-
-
 async def run_context_phase(request_id: str, prompt: str) -> None:
-    """Phase 1: Planner -> Metadata Analyst, then pause for the context
-    checkpoint. Invoked immediately after POST /api/requests creates the
-    row. Always pauses at the end — even when Metadata Analyst finds
-    nothing, so "no existing data, start fresh" is a real, visible choice
-    rather than a silent skip."""
+    """Phase 1. Always pauses at the end, even with no matches, so starting fresh is a visible choice."""
     async with session_scope() as db:
         request = await db.get(Request, request_id)
         if request is None:
@@ -277,13 +211,7 @@ async def run_context_phase(request_id: str, prompt: str) -> None:
 
 
 async def resume_generation_phase(request_id: str) -> None:
-    """Phase 2: Data Engineer -> QA -> Documentation, then pause for the
-    writeback checkpoint. `context_mode` ("grounded" or "fresh") is
-    recorded but doesn't change which agents run — it changes what the
-    Data Engineer's prompt contains (see agents/data_engineer.py), since
-    the "fresh" path still passes matched_datasets through, just
-    (in real/Groq mode) as an empty or de-emphasized list rather than
-    omitting the step entirely."""
+    """Phase 2. Runs after the endpoint claimed the run; "fresh" mode drops the matched datasets."""
     async with session_scope() as db:
         request = await db.get(Request, request_id)
         # the endpoint already claimed the run (status=running, context_mode set)
@@ -300,13 +228,7 @@ async def resume_generation_phase(request_id: str) -> None:
     ctx.results = await _load_prior_results(request_id)
 
     if context_mode == "fresh" and "metadata_analyst" in ctx.results:
-        # Genuinely strip the matched datasets rather than just labeling the
-        # choice — otherwise "start fresh" would be cosmetic and Data
-        # Engineer would silently use DataHub context anyway. In demo mode
-        # this doesn't change the *fixture* content (MockLLMProvider ignores
-        # its prompt entirely, a pre-existing, documented limitation — see
-        # README), but the actual empty list IS what reaches the prompt, so
-        # real/Groq mode responds to this correctly.
+        # strip the matches for real, so "start fresh" changes what the data engineer sees
         ctx.results["metadata_analyst"] = {
             **ctx.results["metadata_analyst"],
             "matched_datasets": [],
@@ -326,10 +248,7 @@ async def resume_generation_phase(request_id: str) -> None:
 
 
 async def resume_writeback_phase(request_id: str) -> None:
-    """Phase 3: Writeback, only if the human approved it. Skipping still
-    marks the request complete — the generated artifacts already exist
-    from phase 2 regardless of this decision; only DataHub itself is
-    affected by approve vs. skip."""
+    """Phase 3. Skipping still completes the run; only DataHub is affected by the choice."""
     async with session_scope() as db:
         request = await db.get(Request, request_id)
         # the endpoint already claimed the run (status=running, writeback_mode set)
@@ -357,10 +276,7 @@ async def resume_writeback_phase(request_id: str) -> None:
     await _finalize_request(request_id, status="complete" if ok else "failed")
 
 
-# --- Persistence helpers -------------------------------------------------
-# Each helper opens its own short-lived session so a mid-pipeline crash
-# doesn't leave a single long-running transaction half-committed across
-# every stage.
+# Each helper uses its own short transaction, so a crash never leaves one spanning stages.
 
 
 async def _persist_stage_start(request_id: str, sequence: int, agent_name: str) -> None:

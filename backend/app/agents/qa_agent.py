@@ -21,7 +21,6 @@ _MASK_FN_PATTERN = re.compile(r"(md5|sha256|sha1|mask|hash|left)\s*\(", re.IGNOR
 
 class QAAgent(Agent):
     name = "qa"
-    critical = True
 
     async def run(self, ctx: RunContext) -> AgentResult:
         metadata_output = ctx.prior("metadata_analyst")

@@ -1,16 +1,4 @@
-"""
-SQLAlchemy ORM models.
-
-Table design mirrors the domain 1:1 with the frontend's `lib/types.ts`
-contract:
-  - `requests`            -> RequestSummary (minus nested agent_runs)
-  - `agent_runs`          -> AgentRun[]
-  - `artifacts`           -> flattened into ArtifactBundle at the API layer
-  - `validation_reports`  -> ValidationReport
-
-Primary keys are string UUIDs (uuid4, stored as native Postgres UUID) —
-easy to pass around as opaque route params, no auto-increment leakage.
-"""
+"""ORM models. Tables mirror the frontend contract in frontend/lib/types.ts."""
 from __future__ import annotations
 
 import uuid
@@ -41,26 +29,15 @@ class Request(Base):
         UUID(as_uuid=False), primary_key=True, default=_uuid
     )
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    # pending | running | awaiting_context_approval | awaiting_writeback_approval
-    # | complete | failed  (matches RequestSummary["status"])
-    #
-    # The two "awaiting_*" states are genuine pauses, not just UI labels: the
-    # orchestrator stops executing and returns after persisting each one —
-    # see orchestrator.py's run_context_phase / resume_generation_phase /
-    # resume_writeback_phase split. Nothing proceeds past a checkpoint
-    # without an explicit POST to the corresponding approve/skip endpoint.
+    # pending | running | awaiting_context_approval | awaiting_writeback_approval | complete | failed
+    # The awaiting_* states are real pauses: nothing runs until a checkpoint endpoint claims the run.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     # Correlation ID for tracing/logging across agents + external calls.
     # Distinct from `id` so we can rotate/redact it without touching the PK.
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False, default=_uuid)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
-    # Audit trail of what the human actually chose at each checkpoint —
-    # null until that checkpoint is reached. "grounded" means the user
-    # accepted DataHub's matched datasets as context; "fresh" means they
-    # explicitly chose to proceed without them (including the case where
-    # DataHub had nothing to match). "approved"/"skipped" mirrors the same
-    # idea for the writeback checkpoint.
+    # what the human chose at each checkpoint: grounded | fresh, approved | skipped
     context_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     writeback_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
