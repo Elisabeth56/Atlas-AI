@@ -4,10 +4,43 @@ selected. This is the agent that makes Atlas AI "metadata-grounded"
 rather than hallucinating table/column names."""
 from __future__ import annotations
 
+import asyncio
 import json
 
 from app.agents.base import Agent, AgentResult, RunContext
 from app.schemas import MetadataAnalystOutput
+
+# enough to overlap network waits without flooding the MCP server
+MAX_CONCURRENT_LOOKUPS = 5
+
+
+async def find_candidates(ctx: RunContext, entities: list[str]) -> dict[str, dict]:
+    """Searches DataHub for every entity, then fetches each unique match's schema.
+
+    Both rounds run concurrently. Results are merged in entity order, so the
+    same search results always produce the same candidate list.
+    """
+    limit = asyncio.Semaphore(MAX_CONCURRENT_LOOKUPS)
+
+    async def bounded(call):
+        async with limit:
+            return await call
+
+    searches = await asyncio.gather(
+        *(bounded(ctx.datahub.search_datasets(e, limit=5)) for e in entities)
+    )
+    candidates: dict[str, dict] = {}
+    for results in searches:
+        for ds in results:
+            if ds.get("urn"):
+                candidates.setdefault(ds["urn"], ds)
+
+    schemas = await asyncio.gather(
+        *(bounded(ctx.datahub.get_schema(urn)) for urn in candidates)
+    )
+    for ds, schema in zip(candidates.values(), schemas, strict=True):
+        ds["schema"] = schema.get("fields", [])
+    return candidates
 
 
 class MetadataAnalystAgent(Agent):
@@ -20,17 +53,7 @@ class MetadataAnalystAgent(Agent):
 
         await ctx.emit_log("searching DataHub for candidate datasets")
 
-        # Ground the LLM call in real DataHub search results — one search
-        # per entity, deduplicated by URN — rather than letting it guess.
-        candidates: dict[str, dict] = {}
-        for entity in entities:
-            for ds in await ctx.datahub.search_datasets(entity, limit=5):
-                if ds.get("urn"):
-                    candidates[ds["urn"]] = ds
-
-        for urn in list(candidates.keys()):
-            schema = await ctx.datahub.get_schema(urn)
-            candidates[urn]["schema"] = schema.get("fields", [])
+        candidates = await find_candidates(ctx, entities)
 
         await ctx.emit_log(
             f"retrieved {len(candidates)} candidate datasets from DataHub"
