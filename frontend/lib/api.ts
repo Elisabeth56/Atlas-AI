@@ -174,13 +174,15 @@ function mockRequest(requestId: string): RequestSummary {
       started_at: new Date().toISOString(),
       finished_at: new Date().toISOString(),
       input_json: null,
-      // metadata_analyst carries the matched_datasets the two checkpoint
-      // panels read via getRequest(). All other stages leave output_json
-      // null in simulation — the panels don't consume them.
+      // only the stages the checkpoint panels read carry output in simulation
       output_json:
         s.id === "metadata_analyst"
           ? ({ matched_datasets: MOCK_MATCHED_DATASETS } as Record<string, unknown>)
-          : null,
+          : s.id === "data_engineer"
+            ? ({
+                files: [{ kind: "dbt_model", filename: "models/marts/fct_revenue.sql" }],
+              } as Record<string, unknown>)
+            : null,
       error: null,
     })),
   };
