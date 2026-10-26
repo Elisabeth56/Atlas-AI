@@ -67,10 +67,10 @@ class WSResult(BaseModel):
     summary: str
 
 
-class AgentRunEvent(BaseModel):
+class RunEvent(BaseModel):
     """
     Exact shape consumed by `hooks/useRunStream.ts`. Sent as raw JSON text
-    over the `/api/requests/{id}/stream` socket — one event per stage
+    over the `/api/runs/{id}/stream` socket — one event per stage
     transition (started -> done|failed).
     """
 
@@ -84,31 +84,31 @@ class AgentRunEvent(BaseModel):
 
 # --- REST: agent runs -----------------------------------------------
 
-class AgentRunOut(BaseModel):
+class RunStepOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    request_id: str
-    agent_name: AgentId
+    run_id: str
+    agent: AgentId
     status: AgentRunStatus
     started_at: datetime | None
     finished_at: datetime | None
-    input_json: dict | None
-    output_json: dict | None
+    input: dict | None
+    output: dict | None
     error: str | None
 
 
 # --- REST: requests ---------------------------------------------------
 
-class CreateRequestIn(BaseModel):
+class CreateRunIn(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
 
 
-class CreateRequestOut(BaseModel):
-    request_id: str
+class CreateRunOut(BaseModel):
+    run_id: str
 
 
-class RequestSummaryOut(BaseModel):
+class RunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -118,7 +118,7 @@ class RequestSummaryOut(BaseModel):
     created_at: datetime
     context_mode: ContextMode | None
     writeback_mode: WritebackMode | None
-    agent_runs: list[AgentRunOut]
+    steps: list[RunStepOut]
 
 
 # --- REST: artifacts ----------------------------------------------------
@@ -132,7 +132,7 @@ class ArtifactBundleOut(BaseModel):
     into the UI).
     """
 
-    request_id: str
+    run_id: str
     dbt_models: str
     sql: str
     tests: str
@@ -150,7 +150,7 @@ class ValidationCheckOut(BaseModel):
 
 
 class ValidationReportOut(BaseModel):
-    request_id: str
+    run_id: str
     checks: list[ValidationCheckOut]
     passed: bool
     blocking: bool
@@ -158,8 +158,8 @@ class ValidationReportOut(BaseModel):
 
 # --- Internal: agent I/O schemas ----------------------------------------
 # These are NOT sent to the frontend directly — they're the typed contract
-# between orchestrator <-> agents, persisted into AgentRun.input_json /
-# output_json as dicts. Keeping them as real Pydantic models (rather than
+# between orchestrator <-> agents, persisted into RunStep.input /
+# output as dicts. Keeping them as real Pydantic models (rather than
 # loose dicts) means every agent is independently unit-testable against a
 # concrete schema.
 
@@ -233,7 +233,7 @@ class DocumentationOutput(BaseModel):
 
 
 class WritebackInput(BaseModel):
-    request_id: str
+    run_id: str
     matched_datasets: list[MatchedDataset]
     files: list[GeneratedFile]
     checks: list[ValidationCheckOut]

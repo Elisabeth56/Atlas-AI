@@ -31,9 +31,9 @@ class Script:
 
     def __init__(self, *responses: httpx.Response) -> None:
         self.responses = list(responses)
-        self.requests: list[httpx.Request] = []
+        self.requests: list[httpx.Run] = []
 
-    def __call__(self, request: httpx.Request) -> httpx.Response:
+    def __call__(self, request: httpx.Run) -> httpx.Response:
         self.requests.append(request)
         return self.responses.pop(0)
 

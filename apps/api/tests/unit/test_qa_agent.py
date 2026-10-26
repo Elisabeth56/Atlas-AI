@@ -28,7 +28,7 @@ def _ctx(files: list[dict], datasets: list[dict]) -> RunContext:
         pass
 
     ctx = RunContext(
-        request_id="r", prompt="p", llm=MockLLMProvider(fixtures={}),
+        run_id="r", prompt="p", llm=MockLLMProvider(fixtures={}),
         datahub=MockDataHubGateway(latency_seconds=0), emit_log=emit_log,
     )
     ctx.results["metadata_analyst"] = {"matched_datasets": datasets}

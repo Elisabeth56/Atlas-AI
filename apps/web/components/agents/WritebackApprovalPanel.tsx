@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { GitBranch, Check, X, ShieldAlert } from "lucide-react";
-import { getRequest, getValidationReport, approveWriteback, skipWriteback } from "@/lib/api";
+import { getRun, getValidationReport, approveWriteback, skipWriteback } from "@/lib/api";
 import type { MatchedDataset, ValidationCheck } from "@/lib/types";
 
 type GeneratedFile = { kind: string; filename: string };
@@ -23,14 +23,14 @@ export function WritebackApprovalPanel({ requestId }: { requestId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getRequest(requestId), getValidationReport(requestId)])
+    Promise.all([getRun(requestId), getValidationReport(requestId)])
       .then(([req, report]) => {
         if (cancelled) return;
-        const run = req.agent_runs.find((r) => r.agent_name === "metadata_analyst");
-        const matched = (run?.output_json?.matched_datasets as MatchedDataset[] | undefined) ?? [];
+        const run = req.steps.find((r) => r.agent === "metadata_analyst");
+        const matched = (run?.output?.matched_datasets as MatchedDataset[] | undefined) ?? [];
         setDatasets(matched);
-        const engineer = req.agent_runs.find((r) => r.agent_name === "data_engineer");
-        const files = (engineer?.output_json?.files as GeneratedFile[] | undefined) ?? [];
+        const engineer = req.steps.find((r) => r.agent === "data_engineer");
+        const files = (engineer?.output?.files as GeneratedFile[] | undefined) ?? [];
         setMarts(martNames(files));
         if (report.blocking) {
           setBlockers(report.checks.filter((c) => !c.passed && c.severity === "critical"));

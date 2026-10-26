@@ -30,7 +30,7 @@ class RunContext:
     matched datasets) without a rigid positional argument chain.
     """
 
-    request_id: str
+    run_id: str
     prompt: str
     llm: LLMProvider
     datahub: DataHubGateway
@@ -38,20 +38,20 @@ class RunContext:
     results: dict[str, dict[str, Any]] = field(default_factory=dict)
     current_agent: str = ""
 
-    def prior(self, agent_name: str) -> dict[str, Any]:
+    def prior(self, agent: str) -> dict[str, Any]:
         """Fetch a prior agent's output dict, or raise a clear error if
         the pipeline was reordered/misconfigured."""
-        if agent_name not in self.results:
+        if agent not in self.results:
             raise KeyError(
-                f"RunContext has no result for '{agent_name}' — check pipeline order"
+                f"RunContext has no result for '{agent}' — check pipeline order"
             )
-        return self.results[agent_name]
+        return self.results[agent]
 
 
 @dataclass
 class AgentResult:
     """Every agent returns one of these. `data` is the agent's schema-typed
-    output, serialized to a dict for storage in AgentRun.output_json and
+    output, serialized to a dict for storage in RunStep.output and
     for downstream agents to read via RunContext.results."""
 
     summary: str
@@ -60,7 +60,7 @@ class AgentResult:
 
 class Agent(ABC):
     """One pipeline stage. `name` must match a value in schemas.AgentId: it's the
-    WebSocket event's `agent` field and the agent_runs row's `agent_name`."""
+    WebSocket event's `agent` field and the steps row's `agent`."""
 
     name: str
 

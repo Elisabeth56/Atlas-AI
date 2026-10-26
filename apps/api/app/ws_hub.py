@@ -1,7 +1,7 @@
 """
 In-memory, room-based WebSocket connection manager.
 
-Rooms are keyed by request_id so only browser tabs watching that specific
+Rooms are keyed by run_id so only browser tabs watching that specific
 run receive its events. This is intentionally in-process (a dict of
 sets) rather than backed by Redis pub/sub — the orchestrator and the API
 server run in the same process for this monolith, so there's no
@@ -16,7 +16,7 @@ import logging
 
 from fastapi import WebSocket
 
-from app.schemas import AgentRunEvent
+from app.schemas import RunEvent
 
 logger = logging.getLogger("atlas.ws_hub")
 
@@ -26,30 +26,30 @@ class ConnectionManager:
         self._rooms: dict[str, set[WebSocket]] = {}
         self._lock = asyncio.Lock()
 
-    async def connect(self, request_id: str, ws: WebSocket) -> None:
+    async def connect(self, run_id: str, ws: WebSocket) -> None:
         await ws.accept()
         async with self._lock:
-            self._rooms.setdefault(request_id, set()).add(ws)
-        logger.info("ws connected request_id=%s connections=%d",
-                     request_id, len(self._rooms[request_id]))
+            self._rooms.setdefault(run_id, set()).add(ws)
+        logger.info("ws connected run_id=%s connections=%d",
+                     run_id, len(self._rooms[run_id]))
 
-    async def disconnect(self, request_id: str, ws: WebSocket) -> None:
+    async def disconnect(self, run_id: str, ws: WebSocket) -> None:
         async with self._lock:
-            room = self._rooms.get(request_id)
+            room = self._rooms.get(run_id)
             if room is not None:
                 room.discard(ws)
                 if not room:
-                    self._rooms.pop(request_id, None)
+                    self._rooms.pop(run_id, None)
 
-    async def broadcast(self, request_id: str, event: AgentRunEvent) -> None:
+    async def broadcast(self, run_id: str, event: RunEvent) -> None:
         """
-        Push an event to every socket watching `request_id`. Safe to call
+        Push an event to every socket watching `run_id`. Safe to call
         even if no one is connected yet (e.g. the frontend reconnects
         mid-run) — the REST GET endpoint remains the source of truth for
         state a client missed while disconnected.
         """
         async with self._lock:
-            sockets = list(self._rooms.get(request_id, ()))
+            sockets = list(self._rooms.get(run_id, ()))
 
         if not sockets:
             return
@@ -64,22 +64,22 @@ class ConnectionManager:
 
         if dead:
             async with self._lock:
-                room = self._rooms.get(request_id)
+                room = self._rooms.get(run_id)
                 if room:
                     for ws in dead:
                         room.discard(ws)
                     if not room:
-                        self._rooms.pop(request_id, None)
+                        self._rooms.pop(run_id, None)
 
-    def room_size(self, request_id: str) -> int:
-        return len(self._rooms.get(request_id, ()))
+    def room_size(self, run_id: str) -> int:
+        return len(self._rooms.get(run_id, ()))
 
 
 # Module-level singleton — imported by routers/ws.py and the orchestrator.
 manager = ConnectionManager()
 
 
-async def broadcast(request_id: str, event: AgentRunEvent) -> None:
+async def broadcast(run_id: str, event: RunEvent) -> None:
     """Convenience wrapper matching the `ws_hub.broadcast(...)` call style
     referenced in the implementation plan."""
-    await manager.broadcast(request_id, event)
+    await manager.broadcast(run_id, event)

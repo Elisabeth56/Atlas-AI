@@ -23,15 +23,15 @@ export interface AgentRunEvent {
   error?: string;
 }
 
-export interface AgentRun {
+export interface RunStep {
   id: string;
-  request_id: string;
-  agent_name: AgentId;
+  run_id: string;
+  agent: AgentId;
   status: AgentRunStatus;
   started_at: string | null;
   finished_at: string | null;
-  input_json: Record<string, unknown> | null;
-  output_json: Record<string, unknown> | null;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
   error: string | null;
 }
 
@@ -46,7 +46,7 @@ export type RequestStatus =
 export type ContextMode = "grounded" | "fresh";
 export type WritebackMode = "approved" | "skipped";
 
-export interface RequestSummary {
+export interface Run {
   id: string;
   prompt: string;
   status: RequestStatus;
@@ -54,10 +54,10 @@ export interface RequestSummary {
   created_at: string;
   context_mode: ContextMode | null;
   writeback_mode: WritebackMode | null;
-  agent_runs: AgentRun[];
+  steps: RunStep[];
 }
 
-// Shape of each entry in metadata_analyst's AgentRun.output_json.matched_datasets —
+// Shape of each entry in metadata_analyst's RunStep.output.matched_datasets —
 // mirrors apps/api/app/schemas.py's MatchedDataset exactly.
 export interface MatchedDataset {
   urn: string;
@@ -72,7 +72,7 @@ export interface MatchedDataset {
 export type ArtifactKind = "dbt_model" | "sql" | "test" | "doc" | "config";
 
 export interface ArtifactBundle {
-  request_id: string;
+  run_id: string;
   dbt_models: string;
   sql: string;
   tests: string;
@@ -90,7 +90,7 @@ export interface ValidationCheck {
 }
 
 export interface ValidationReport {
-  request_id: string;
+  run_id: string;
   checks: ValidationCheck[];
   passed: boolean;
   blocking: boolean;

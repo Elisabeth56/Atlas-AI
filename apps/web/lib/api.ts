@@ -1,4 +1,4 @@
-import type { ArtifactBundle, MatchedDataset, RequestSummary, ValidationReport } from "@/lib/types";
+import type { ArtifactBundle, MatchedDataset, Run, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
 import { toApiError } from "@/lib/errors";
 
@@ -48,31 +48,31 @@ async function http<T>(path: string): Promise<T> {
   return res.json();
 }
 
-// GET /api/requests/{id}
-export async function getRequest(requestId: string): Promise<RequestSummary> {
-  if (HAS_BACKEND) return http(`/api/requests/${requestId}`);
-  return mockRequest(requestId);
+// GET /api/runs/{id}
+export async function getRun(requestId: string): Promise<Run> {
+  if (HAS_BACKEND) return http(`/api/runs/${requestId}`);
+  return mockRun(requestId);
 }
 
-// GET /api/requests/{id}/artifacts
+// GET /api/runs/{id}/artifacts
 export async function getArtifacts(requestId: string): Promise<ArtifactBundle> {
-  if (HAS_BACKEND) return http(`/api/requests/${requestId}/artifacts`);
+  if (HAS_BACKEND) return http(`/api/runs/${requestId}/artifacts`);
   await delay(400);
   return mockArtifacts(requestId);
 }
 
-// Validation results live on the QA agent's AgentRun.output_json, surfaced
+// Validation results live on the QA agent's RunStep.output, surfaced
 // here as a flat shape for the UI. Swap for a real endpoint if you add one.
 export async function getValidationReport(requestId: string): Promise<ValidationReport> {
-  if (HAS_BACKEND) return http(`/api/requests/${requestId}/validation`);
+  if (HAS_BACKEND) return http(`/api/runs/${requestId}/validation`);
   await delay(400);
   return mockValidation(requestId);
 }
 
-// POST /api/requests  → { prompt } → { request_id }
-export async function createRequest(prompt: string): Promise<{ request_id: string }> {
+// POST /api/runs  → { prompt } → { run_id }
+export async function createRun(prompt: string): Promise<{ run_id: string }> {
   if (HAS_BACKEND) {
-    const res = await fetch(`${API_BASE}/api/requests`, {
+    const res = await fetch(`${API_BASE}/api/runs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
@@ -80,7 +80,7 @@ export async function createRequest(prompt: string): Promise<{ request_id: strin
     if (!res.ok) throw await toApiError(res);
     return res.json();
   }
-  return { request_id: Math.random().toString(36).slice(2, 8) };
+  return { run_id: Math.random().toString(36).slice(2, 8) };
 }
 
 async function postAction(requestId: string, path: string): Promise<void> {
@@ -91,34 +91,34 @@ async function postAction(requestId: string, path: string): Promise<void> {
     triggerSimulationResume(requestId);
     return;
   }
-  const res = await fetch(`${API_BASE}/api/requests/${requestId}${path}`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/api/runs/${requestId}${path}`, { method: "POST" });
   if (!res.ok) throw await toApiError(res);
 }
 
-// POST /api/requests/{id}/context/accept — use DataHub's matched datasets as context
+// POST /api/runs/{id}/context/accept — use DataHub's matched datasets as context
 export async function acceptContext(requestId: string): Promise<void> {
   return postAction(requestId, "/context/accept");
 }
 
-// POST /api/requests/{id}/context/start-fresh — proceed without grounding
+// POST /api/runs/{id}/context/start-fresh — proceed without grounding
 export async function startFresh(requestId: string): Promise<void> {
   return postAction(requestId, "/context/start-fresh");
 }
 
-// POST /api/requests/{id}/writeback/approve — write results back to DataHub
+// POST /api/runs/{id}/writeback/approve — write results back to DataHub
 export async function approveWriteback(requestId: string): Promise<void> {
   return postAction(requestId, "/writeback/approve");
 }
 
-// POST /api/requests/{id}/writeback/skip — finish without writing back
+// POST /api/runs/{id}/writeback/skip — finish without writing back
 export async function skipWriteback(requestId: string): Promise<void> {
   return postAction(requestId, "/writeback/skip");
 }
 
-// WS /api/requests/{id}/stream — build a live socket URL for useRunStream.
+// WS /api/runs/{id}/stream — build a live socket URL for useRunStream.
 export function streamUrl(requestId: string): string {
   const base = API_BASE.replace(/^http/, "ws") || "ws://localhost:8000";
-  return `${base}/api/requests/${requestId}/stream`;
+  return `${base}/api/runs/${requestId}/stream`;
 }
 
 function delay(ms: number) {
@@ -158,7 +158,7 @@ const MOCK_MATCHED_DATASETS: MatchedDataset[] = [
   },
 ];
 
-function mockRequest(requestId: string): RequestSummary {
+function mockRun(requestId: string): Run {
   return {
     id: requestId,
     prompt: "Build a customer revenue pipeline from raw Stripe and Postgres events",
@@ -167,16 +167,16 @@ function mockRequest(requestId: string): RequestSummary {
     created_at: new Date().toISOString(),
     context_mode: "grounded",
     writeback_mode: "approved",
-    agent_runs: PIPELINE.map((s) => ({
+    steps: PIPELINE.map((s) => ({
       id: `${requestId}-${s.id}`,
-      request_id: requestId,
-      agent_name: s.id as RequestSummary["agent_runs"][number]["agent_name"],
+      run_id: requestId,
+      agent: s.id as Run["steps"][number]["agent"],
       status: "success",
       started_at: new Date().toISOString(),
       finished_at: new Date().toISOString(),
-      input_json: null,
+      input: null,
       // only the stages the checkpoint panels read carry output in simulation
-      output_json:
+      output:
         s.id === "metadata_analyst"
           ? ({ matched_datasets: MOCK_MATCHED_DATASETS } as Record<string, unknown>)
           : s.id === "data_engineer"
@@ -191,7 +191,7 @@ function mockRequest(requestId: string): RequestSummary {
 
 function mockArtifacts(requestId: string): ArtifactBundle {
   return {
-    request_id: requestId,
+    run_id: requestId,
     dbt_models: `-- models/marts/fct_revenue.sql
 with orders as (
     select * from {{ ref('stg_orders') }}
@@ -256,7 +256,7 @@ models:
 
 function mockValidation(requestId: string): ValidationReport {
   return {
-    request_id: requestId,
+    run_id: requestId,
     passed: false,
     blocking: true,
     checks: [

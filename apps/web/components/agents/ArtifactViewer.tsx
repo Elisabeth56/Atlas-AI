@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Copy, Check } from "lucide-react";
 import type { ArtifactBundle } from "@/lib/types";
 
-const tabs: { key: keyof Omit<ArtifactBundle, "request_id">; label: string; lang: string }[] = [
+const tabs: { key: keyof Omit<ArtifactBundle, "run_id">; label: string; lang: string }[] = [
   { key: "dbt_models", label: "dbt model", lang: "sql" },
   { key: "sql", label: "SQL", lang: "sql" },
   { key: "tests", label: "Tests", lang: "yaml" },

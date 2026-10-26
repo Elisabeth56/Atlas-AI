@@ -9,6 +9,9 @@ services:
       - "5432:5432"
     volumes:
       - atlas_postgres_data:/var/lib/postgresql/data
+      # first start applies supabase/migrations and the seed (see supabase/local/init.sh)
+      - ./supabase:/atlas:ro
+      - ./supabase/local/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
       interval: 5s

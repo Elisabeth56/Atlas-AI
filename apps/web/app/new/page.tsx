@@ -7,7 +7,7 @@ import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { DEMO_PROMPT } from "@/lib/pipeline";
-import { createRequest } from "@/lib/api";
+import { createRun } from "@/lib/api";
 
 const EXAMPLE_PROMPTS = [
   DEMO_PROMPT,
@@ -29,8 +29,8 @@ export default function NewRunPage() {
     setStarting(true);
     setError(null);
     try {
-      const { request_id } = await createRequest(trimmed);
-      router.push(`/agents/${request_id}?prompt=${encodeURIComponent(trimmed)}`);
+      const { run_id } = await createRun(trimmed);
+      router.push(`/agents/${run_id}?prompt=${encodeURIComponent(trimmed)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start the run.");
       setStarting(false);

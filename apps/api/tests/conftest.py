@@ -11,20 +11,31 @@ os.environ.setdefault(
 )
 os.environ.setdefault("DEMO_MODE", "true")
 
+from pathlib import Path  # noqa: E402
+
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 
-from app import models  # noqa: E402, F401  (registers tables on Base)
-from app.database import Base, dispose_engine, get_engine  # noqa: E402
+from app.database import dispose_engine, get_engine  # noqa: E402
 from app.main import app  # noqa: E402
+
+SUPABASE = Path(__file__).resolve().parents[3] / "supabase"
+SCHEMA_SQL = "\n".join(
+    p.read_text()
+    for p in [SUPABASE / "local" / "auth-stub.sql", *sorted((SUPABASE / "migrations").glob("*.sql")), SUPABASE / "seed.sql"]
+)
+DEMO_WORKSPACE = "00000000-0000-0000-0000-0000000000d0"
 
 
 @pytest.fixture
 async def db_ready():
-    """Fresh tables per test; the engine is disposed after so no connection outlives its event loop."""
+    """A fresh database built from the real migrations for every test."""
     async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+        raw = await conn.get_raw_connection()
+        await raw.driver_connection.execute(
+            "drop schema if exists public cascade; drop schema if exists auth cascade; create schema public;"
+            + SCHEMA_SQL
+        )
     yield
     await dispose_engine()
 
