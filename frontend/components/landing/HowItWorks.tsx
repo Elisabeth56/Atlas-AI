@@ -3,30 +3,30 @@ import { Eyebrow } from "@/components/ui/Eyebrow";
 const steps = [
   {
     n: "01",
-    title: "Connect and map",
-    body: "Atlas reads your warehouse metadata, orchestrator history and repository to build a live map of every table, job and dependency.",
-    code: "atlas connect --warehouse sn…",
+    title: "Describe it",
+    body: "Write the pipeline you want in a sentence, like a customer revenue model from raw Stripe and Postgres events.",
+    code: "\"customer revenue from stripe…\"",
     active: false,
   },
   {
     n: "02",
-    title: "Set the guardrails",
-    body: "Define budgets, protected datasets, approval rules and SLAs as policy. Agents can only act inside the boundaries you sign off.",
-    code: "policy: require_review(schem…",
+    title: "Confirm the sources",
+    body: "Atlas shows the DataHub datasets it matched and why. Accept them, or start fresh without catalog grounding.",
+    code: "matched: raw.stripe_payments…",
     active: true,
   },
   {
     n: "03",
-    title: "Agents plan and build",
-    body: "Work arrives as an explicit plan: what changes, why, expected cost and blast radius. Approve once and the fleet executes.",
-    code: "plan → dry-run → test → pull…",
+    title: "Review the output",
+    body: "Models, SQL, tests and docs arrive with a QA report. A critical finding, like an unmasked PII column, is called out by name.",
+    code: "qa: 5 checks · 1 critical",
     active: false,
   },
   {
     n: "04",
-    title: "Operate and improve",
-    body: "Atlas keeps watching after merge — repairing failures, tightening contracts and reclaiming spend with every run.",
-    code: "mean time to repair: 3m 12s",
+    title: "Write back, or don't",
+    body: "Approve to add docs and lineage to DataHub, or skip and keep the artifacts. Either way the files are yours.",
+    code: "writeback: approved",
     active: false,
   },
 ];
@@ -39,11 +39,11 @@ export function HowItWorks() {
           <Eyebrow>How it works</Eyebrow>
         </div>
         <h2 className="mx-auto mt-6 max-w-2xl text-[36px] font-bold leading-[1.15] tracking-tight text-text-heading sm:text-[44px]">
-          From connection to autonomy in four moves
+          From a sentence to reviewed dbt in four steps
         </h2>
         <p className="mx-auto mt-5 max-w-2xl text-[16px] leading-relaxed text-text-body">
-          No rip-and-replace. Atlas starts read-only, earns trust on low-risk
-          work, then takes on more of the pipeline as your guardrails allow.
+          Atlas does the typing. You make the two calls that matter: which
+          sources to trust, and whether the result goes back to the catalog.
         </p>
 
         <div className="mt-14 grid grid-cols-1 gap-5 text-left sm:grid-cols-2 lg:grid-cols-4">
