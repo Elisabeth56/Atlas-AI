@@ -20,7 +20,7 @@ from app.schemas import (
 
 
 def test_agent_sequence_matches_frontend_pipeline_order() -> None:
-    """Mirrors frontend/lib/pipeline.ts PIPELINE ids exactly."""
+    """Mirrors apps/web/lib/pipeline.ts PIPELINE ids exactly."""
     assert AGENT_SEQUENCE == [
         "planner",
         "metadata_analyst",
@@ -50,7 +50,7 @@ def test_every_demo_fixture_validates_against_its_schema() -> None:
 
 
 def test_ws_event_shape_matches_frontend_contract() -> None:
-    """Mirrors AgentRunEvent in frontend/lib/types.ts."""
+    """Mirrors AgentRunEvent in apps/web/lib/types.ts."""
     started = AgentRunEvent(agent="planner", status="started")
     assert started.model_dump(exclude_none=True) == {"agent": "planner", "status": "started"}
 

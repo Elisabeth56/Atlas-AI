@@ -50,7 +50,7 @@ summary) behind these files.
 ## Regenerating this folder
 
 ```bash
-cd backend
+cd apps/api
 source .venv/bin/activate
 python3 -c "
 import json, os

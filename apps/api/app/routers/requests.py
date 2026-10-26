@@ -1,5 +1,5 @@
 """
-REST routes under /api/requests — matches frontend/lib/api.ts, extended
+REST routes under /api/requests — matches apps/web/lib/api.ts, extended
 with the two human-in-the-loop checkpoints:
 
   POST /api/requests                         -> { request_id }

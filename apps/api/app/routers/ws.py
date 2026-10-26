@@ -1,6 +1,6 @@
 """
 WebSocket route — WS /api/requests/{id}/stream — matches
-frontend/lib/api.ts `streamUrl()` and hooks/useRunStream.ts exactly.
+apps/web/lib/api.ts `streamUrl()` and hooks/useRunStream.ts exactly.
 """
 from __future__ import annotations
 

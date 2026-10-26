@@ -6,7 +6,7 @@ was written against tool names/arguments from documentation, not a live
 right before trusting it in a demo.
 
 Usage:
-    cd backend
+    cd apps/api
     source .venv/bin/activate
     pip install mcp
     export DATAHUB_GMS_URL=http://localhost:8080

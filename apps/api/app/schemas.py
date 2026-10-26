@@ -2,7 +2,7 @@
 Pydantic v2 API contracts.
 
 CRITICAL: every shape in this file must stay byte-for-byte compatible with
-`frontend/lib/types.ts`. That file is the source of truth for the wire
+`apps/web/lib/types.ts`. That file is the source of truth for the wire
 format (it was reviewed directly, not assumed) — if you change a field
 here, mirror it there in the same commit, or the frontend will silently
 mis-parse responses.
