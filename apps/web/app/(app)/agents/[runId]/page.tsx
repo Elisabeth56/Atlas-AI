@@ -12,9 +12,7 @@ import { SourcesCheckpoint } from "@/components/run/SourcesCheckpoint";
 import { WritebackStage } from "@/components/run/WritebackStage";
 import { buttonStyles } from "@/components/ui/Button";
 import { useRunStream } from "@/hooks/useRunStream";
-import { getRun } from "@/lib/api";
-import { framesFromRun, framesFromStatuses, type Frame } from "@/lib/film";
-import { DEMO_PROMPT } from "@/lib/pipeline";
+import { framesFromRun, type Frame } from "@/lib/film";
 import { runTitle } from "@/lib/runs";
 import type { Run } from "@/lib/types";
 
@@ -22,14 +20,14 @@ export default function RunPage() {
   const { runId } = useParams<{ runId: string }>();
   const search = useSearchParams();
   const stream = useRunStream(runId);
-  const run = useSimulatedRun(runId, stream) ?? stream.run;
-  const frames = stream.run ? framesFromRun(stream.run) : framesFromStatuses(stream.statuses, stream.pausedAt);
-  const prompt = run?.prompt ?? search.get("prompt") ?? DEMO_PROMPT;
+  const run = stream.run;
+  const frames = run ? framesFromRun(run) : [];
+  const prompt = run?.prompt ?? search.get("prompt") ?? "";
 
   useTabTitle(frames, run);
 
   if (stream.notFound) return <LostRun />;
-  if (stream.live && !run && !stream.connectionError) return <RunSkeleton />;
+  if (!run && !stream.connectionError) return <RunSkeleton />;
 
   return (
     <div className="flex flex-col gap-[22px] px-4 pt-5 pb-[60vh] sm:px-7 md:pb-8">
@@ -119,20 +117,6 @@ function Panel({ run, frames, onChange }: { run: Run | null; frames: Frame[]; on
       );
     }
   }
-}
-
-/** The browser simulation has no database row, so it borrows the mock run and takes its status from the pause. */
-function useSimulatedRun(runId: string, stream: ReturnType<typeof useRunStream>): Run | null {
-  const [mock, setMock] = useState<Run | null>(null);
-  useEffect(() => {
-    if (!stream.live) getRun(runId).then(setMock);
-  }, [runId, stream.live]);
-  if (stream.live || !mock) return null;
-  const status: Run["status"] =
-    stream.pausedAt === "context" ? "awaiting_context_approval"
-    : stream.pausedAt === "writeback" ? "awaiting_writeback_approval"
-    : stream.complete ? "complete" : "running";
-  return { ...mock, status, steps: status === "awaiting_context_approval" ? mock.steps.slice(0, 2) : mock.steps };
 }
 
 /** Long runs go on in the background; the tab says where they are. */

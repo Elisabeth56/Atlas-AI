@@ -1,0 +1,31 @@
+# Fallback host (ADR 007): Render's free web service runs the same image. It sleeps after 15 minutes
+# idle; the job lease (ADR 001) resumes any run a sleep interrupts. Secrets are set in the Render dashboard.
+services:
+  - type: web
+    name: atlas-api
+    runtime: image
+    image:
+      url: ghcr.io/elisabeth56/atlas-api:latest
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: AUTH_MODE
+        value: supabase
+      - key: DEMO_MODE
+        value: "false"
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CORS_ORIGIN_REGEX
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

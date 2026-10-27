@@ -64,9 +64,11 @@ install_error_handlers(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
+    # the API reads a Bearer token, never cookies, so credentialed CORS isn't needed
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(runs_router.router)
