@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { CheckCircle2, FileText, ShieldAlert, WifiOff } from "lucide-react";
-import { RunStepper } from "@/components/agents/RunStepper";
+import { FilmStrip } from "@/components/agents/FilmStrip";
 import { ExecutionLog } from "@/components/agents/ExecutionLog";
 import { ContextReviewPanel } from "@/components/agents/ContextReviewPanel";
 import { WritebackApprovalPanel } from "@/components/agents/WritebackApprovalPanel";
-import { PIPELINE, DEMO_PROMPT } from "@/lib/pipeline";
+import { DEMO_PROMPT } from "@/lib/pipeline";
+import { framesFromRun, framesFromStatuses } from "@/lib/film";
 import { useRunStream } from "@/hooks/useRunStream";
 
 export default function RunPage() {
@@ -15,7 +16,8 @@ export default function RunPage() {
   const search = useSearchParams();
   const prompt = search.get("prompt") ?? DEMO_PROMPT;
 
-  const { statuses, logs, complete, failed, connectionError, pausedAt, live } = useRunStream(params.runId);
+  const { run, statuses, logs, complete, failed, connectionError, pausedAt, live } = useRunStream(params.runId);
+  const frames = run ? framesFromRun(run) : framesFromStatuses(statuses, pausedAt);
 
   return (
     <>
@@ -45,11 +47,11 @@ export default function RunPage() {
             </div>
           )}
 
-          <div className="mt-8 grid grid-cols-1 gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-            <RunStepper stages={PIPELINE} statuses={statuses} />
-            <div className="h-[460px]">
-              <ExecutionLog lines={logs} />
-            </div>
+          <div className="mt-8">
+            <FilmStrip frames={frames} />
+          </div>
+          <div className="mt-5 h-[360px]">
+            <ExecutionLog lines={logs} />
           </div>
 
           {failed && (
