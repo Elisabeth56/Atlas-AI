@@ -4,7 +4,7 @@ Every route is scoped to the caller's workspace; a run in another workspace is a
   GET  /api/runs                          recent runs, newest first
   POST /api/runs                          start a run
   GET  /api/runs/{id}                     the run and its steps
-  GET  /api/runs/{id}/artifacts           generated files, grouped by kind
+  GET  /api/runs/{id}/artifacts           generated files, one entry per file
   GET  /api/runs/{id}/validation          the QA report
   POST /api/runs/{id}/context/accept      checkpoint 1: keep the matched sources
   POST /api/runs/{id}/context/start-fresh checkpoint 1: continue without grounding
@@ -33,7 +33,8 @@ from app.orchestrator import PHASE_OF_AGENT
 from app.qa.fixes import StaleFix
 from app.schemas import (
     AgentId,
-    ArtifactBundleOut,
+    ArtifactFilesOut,
+    ArtifactOut,
     CreateRunIn,
     CreateRunOut,
     FixOut,
@@ -91,21 +92,13 @@ async def get_run(run_id: str, caller: Caller = Depends(current_caller), db: Asy
     return out
 
 
-@router.get("/{run_id}/artifacts", response_model=ArtifactBundleOut)
+@router.get("/{run_id}/artifacts", response_model=ArtifactFilesOut)
 async def get_artifacts(
     run_id: str, caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db)
-) -> ArtifactBundleOut:
+) -> ArtifactFilesOut:
     await _owned_run(db, run_id, caller)
-    result = await db.execute(select(Artifact).where(Artifact.run_id == run_id).order_by(Artifact.created_at))
-    artifacts = result.scalars().all()
-
-    def joined(kind: str) -> str:
-        return "\n\n".join(f"-- {a.filename}\n{a.content}" for a in artifacts if a.kind == kind)
-
-    return ArtifactBundleOut(
-        run_id=run_id, dbt_models=joined("dbt_model"), sql=joined("sql"),
-        tests=joined("test"), docs=joined("doc"), configs=joined("config"),
-    )
+    result = await db.execute(select(Artifact).where(Artifact.run_id == run_id).order_by(Artifact.filename))
+    return ArtifactFilesOut(run_id=run_id, files=[ArtifactOut.model_validate(a) for a in result.scalars()])
 
 
 @router.get("/{run_id}/validation", response_model=ValidationReportOut)
