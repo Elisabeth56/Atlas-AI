@@ -22,7 +22,7 @@ The backend runs a worker loop (001) that claims runs and drives the agents for 
 - Moving hosts is cheap: it's one Docker image with configuration in environment variables.
 
 ## At 10x
-One Starter instance (512 MB) handles a few concurrent runs, since they mostly wait on model calls. Model provider rate limits break before the instance does (004). Past that, a bigger instance or a second one: `FOR UPDATE SKIP LOCKED` already makes several workers safe.
+One instance (512 MB on Free or Starter) handles a few concurrent runs, since they mostly wait on model calls. Model provider rate limits break before the instance does (004). Past that, a bigger instance or a second one: `FOR UPDATE SKIP LOCKED` already makes several workers safe.
 
 ## Revisit when
 Visitors regularly hit the wake-up wait (switch to Starter), or runs need more memory than the instance has.
