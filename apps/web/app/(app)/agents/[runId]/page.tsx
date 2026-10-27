@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FilmStrip } from "@/components/agents/FilmStrip";
-import { WritebackApprovalPanel } from "@/components/agents/WritebackApprovalPanel";
 import { DarkroomLog } from "@/components/run/DarkroomLog";
 import { SourcesCheckpoint } from "@/components/run/SourcesCheckpoint";
+import { WritebackStage } from "@/components/run/WritebackStage";
 import { buttonStyles } from "@/components/ui/Button";
 import { useRunStream } from "@/hooks/useRunStream";
 import { getRun } from "@/lib/api";
@@ -47,16 +47,28 @@ export default function RunPage() {
 
       <FilmStrip frames={frames} />
 
-      <div className="flex flex-wrap items-start gap-5">
-        <div className="min-w-0 flex-[999_1_520px]">
-          <Panel run={run} frames={frames} onChange={stream.refresh} />
-        </div>
-        <div className="min-w-0 flex-[1_1_280px]">
+      {run && atWriteback(run) ? (
+        <>
+          <WritebackStage run={run} onChange={stream.refresh} />
           <DarkroomLog run={run} />
+        </>
+      ) : (
+        <div className="flex flex-wrap items-start gap-5">
+          <div className="min-w-0 flex-[999_1_520px]">
+            <Panel run={run} frames={frames} onChange={stream.refresh} />
+          </div>
+          <div className="min-w-0 flex-[1_1_280px]">
+            <DarkroomLog run={run} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
+}
+
+/** Checkpoint 2, and the writeback phase that follows an approval, share one layout so the lineage light can play. */
+function atWriteback(run: Run) {
+  return run.status === "awaiting_writeback_approval" || (run.status === "running" && run.writeback_mode === "approved");
 }
 
 function Panel({ run, frames, onChange }: { run: Run | null; frames: Frame[]; onChange: () => void }) {
@@ -64,8 +76,6 @@ function Panel({ run, frames, onChange }: { run: Run | null; frames: Frame[]; on
   switch (run.status) {
     case "awaiting_context_approval":
       return <SourcesCheckpoint run={run} onDecided={onChange} />;
-    case "awaiting_writeback_approval":
-      return <WritebackApprovalPanel requestId={run.id} />;
     case "complete":
       return (
         <section className="flex flex-col gap-4 rounded-lg bg-surface-1 p-7 hairline">
