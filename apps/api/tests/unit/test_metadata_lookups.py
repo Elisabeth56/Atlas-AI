@@ -63,3 +63,20 @@ async def test_candidate_order_is_stable():
 
     assert list(first) == list(second)
     assert len(first) > 0
+
+
+async def test_columns_and_pii_come_from_datahub_not_the_model():
+    from app.demo.seed_data import mock_llm_fixtures
+
+    fixtures = mock_llm_fixtures()
+    answer = fixtures["MetadataAnalystOutput"]
+    answer.matched_datasets[0].columns = ["invented_column"]  # the model gets a column list wrong
+    ctx = _ctx(MockDataHubGateway(latency_seconds=0))
+    ctx.llm = MockLLMProvider(fixtures=fixtures, latency_seconds=0)
+    ctx.results["planner"] = fixtures["PlannerOutput"].model_dump()
+
+    result = await metadata_analyst.MetadataAnalystAgent().run(ctx)
+
+    stripe = next(d for d in result.data["matched_datasets"] if d["name"].endswith("stripe_payments"))
+    assert "invented_column" not in stripe["columns"] and "card_last4" in stripe["columns"]
+    assert stripe["pii_columns"] == ["card_last4"]

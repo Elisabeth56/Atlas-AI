@@ -11,6 +11,13 @@ const variants: Record<Variant, string> = {
   suggest: "text-suggest shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--suggest)_35%,transparent)] hover:bg-surface-2",
 };
 
+/** Button looks for elements that aren't buttons, like a Link that navigates. */
+export function buttonStyles(variant: Variant = "primary", size: "sm" | "md" | "lg" = "md") {
+  return `inline-flex items-center justify-center gap-2 rounded-full px-5 text-[15px] transition-[filter,color,opacity] duration-200 ease-ui disabled:pointer-events-none disabled:opacity-40 ${
+    size === "lg" ? "h-12" : size === "sm" ? "h-9 px-3.5 text-[13px]" : "h-11"
+  } ${variants[variant]}`;
+}
+
 interface ButtonProps extends ComponentProps<"button"> {
   variant?: Variant;
   size?: "sm" | "md" | "lg";
@@ -25,9 +32,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   const button = (
     <button
       ref={ref}
-      className={`inline-flex items-center justify-center gap-2 rounded-full px-5 text-[15px] transition-[filter,color,opacity] duration-200 ease-ui disabled:pointer-events-none disabled:opacity-40 ${
-        size === "lg" ? "h-12" : size === "sm" ? "h-9 px-3.5 text-[13px]" : "h-11"
-      } ${variants[variant]} ${className}`}
+      className={`${buttonStyles(variant, size)} ${className}`}
       {...props}
     >
       {children}

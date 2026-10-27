@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PIPELINE } from "@/lib/pipeline";
 import { HAS_BACKEND, getRun, waitForSimulationResume } from "@/lib/api";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -28,6 +28,9 @@ export function useRunStream(runId: string) {
   const [run, setRun] = useState<Run | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const sim = useSimulation(runId, !HAS_BACKEND);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  // lets an action (a checkpoint click) pull fresh state without waiting for Realtime
+  const refresh = useCallback(() => refreshRef.current(), []);
 
   useEffect(() => {
     if (!HAS_BACKEND) return;
@@ -46,6 +49,7 @@ export function useRunStream(runId: string) {
         if (!cancelled) setConnectionError(e instanceof Error ? e.message : "Couldn’t load this run.");
       }
     };
+    refreshRef.current = refresh;
     // one burst of row changes (a stage finishing writes several) becomes one fetch
     const refreshSoon = () => {
       if (pending) clearTimeout(pending);
@@ -82,8 +86,8 @@ export function useRunStream(runId: string) {
     };
   }, [runId]);
 
-  if (!HAS_BACKEND) return { ...sim, run: null, failed: false, connectionError: null, live: false };
-  return { ...fromRun(run), run, connectionError, live: true };
+  if (!HAS_BACKEND) return { ...sim, run: null, failed: false, connectionError: null, live: false, refresh };
+  return { ...fromRun(run), run, connectionError, live: true, refresh };
 }
 
 function fromRun(run: Run | null) {

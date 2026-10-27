@@ -46,3 +46,9 @@ class DataHubGateway(ABC):
     async def emit_lineage(self, upstream_urn: str, downstream_urn: str) -> None:
         """Emit a lineage edge between two dataset URNs."""
         raise NotImplementedError
+
+
+def is_pii(field: dict) -> bool:
+    """A schema field is PII when DataHub tags it or its description says so. QA and the checkpoint share this."""
+    tags = " ".join(str(t) for t in field.get("tags") or [])
+    return "pii" in (field.get("description") or "").lower() or "pii" in tags.lower()
