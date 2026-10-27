@@ -2,7 +2,8 @@ import { ClosingPrompt } from "@/components/landing/ClosingPrompt";
 import { EdgePrint } from "@/components/landing/EdgePrint";
 import { HeroDevelop } from "@/components/landing/HeroDevelop";
 import { LandingNav } from "@/components/landing/LandingNav";
-import { Colophon, ContactSheet, Faq, Pipeline, QaSection } from "@/components/landing/Sections";
+import { QaSection } from "@/components/landing/QaSection";
+import { Colophon, ContactSheet, Faq, Pipeline } from "@/components/landing/Sections";
 
 export default function Home() {
   return (

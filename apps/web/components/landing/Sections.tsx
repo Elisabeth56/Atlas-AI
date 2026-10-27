@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Loupe } from "@/components/ui/Loupe";
 import { Photo } from "@/components/ui/Photo";
+import { InView } from "@/components/landing/InView";
 import { Pencil } from "@/components/landing/Pencil";
 
 const SPROCKETS = Array.from({ length: 40 });
@@ -11,13 +11,28 @@ function Heading({ children }: { children: ReactNode }) {
   return <h2 className="text-[clamp(36px,4.4vw,56px)] leading-none font-semibold tracking-[-0.035em] text-ink">{children}</h2>;
 }
 
-function Frame({ n, children, caption, you, loop }: { n: string; children: ReactNode; caption: ReactNode; you?: boolean; loop?: string }) {
+function Frame({
+  n,
+  children,
+  caption,
+  you,
+  loop,
+  delay,
+}: {
+  n: string;
+  children: ReactNode;
+  caption: ReactNode;
+  you?: boolean;
+  loop?: string;
+  delay: number;
+}) {
   return (
-    <figure className="relative flex flex-col gap-2.5">
+    <figure className="reveal relative flex flex-col gap-2.5" style={{ "--d": `${delay}ms` } as React.CSSProperties}>
       <span className="font-mono text-[10px] tracking-[0.14em] text-ink-3">▸ {n}</span>
       <div className="relative flex aspect-[4/3] flex-col justify-center gap-2 rounded-[10px] bg-surface-1 p-[18px]">
         {children}
-        {loop && <Pencil d={loop} delay={loop === LOOP_B ? 1.4 : 0.6} />}
+        {/* the circle goes on once its frame has developed */}
+        {loop && <Pencil d={loop} delay={(delay + 900) / 1000} />}
       </div>
       <figcaption className="text-small text-ink-2">{caption}</figcaption>
       {you && (
@@ -31,18 +46,37 @@ function Frame({ n, children, caption, you, loop }: { n: string; children: React
 
 export function ContactSheet() {
   return (
-    <section id="sheet" className="flex scroll-mt-6 flex-col gap-10 pt-24 md:pt-[168px]">
+    <section id="sheet" className="scroll-mt-6 pt-24 md:pt-[168px]">
+     <InView className="flex flex-col gap-10" threshold={0.2}>
       <div className="flex flex-wrap items-end justify-between gap-6">
         <Heading>
-          Four frames.
+          <span className="reveal inline-block">Four frames.</span>
           <br />
-          <span className="text-ink-3">You circle two.</span>
+          <span className="reveal relative inline-block text-ink-3" style={{ "--d": "150ms" } as React.CSSProperties}>
+            You circle <span className="relative inline-block text-ink">
+              two.
+              <svg aria-hidden viewBox="0 0 120 14" preserveAspectRatio="none" className="absolute -bottom-2 left-0 h-3 w-[110%] overflow-visible">
+                <path
+                  className="ink"
+                  style={{ "--d": "700ms" } as React.CSSProperties}
+                  pathLength={1}
+                  d="M3 9 C 30 3, 70 4, 117 7"
+                  fill="none"
+                  stroke="var(--safelight)"
+                  strokeWidth={3.5}
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+          </span>
         </Heading>
         <div className="flex items-end gap-6">
-          <p className="max-w-[340px] text-body text-ink-2">
+          <p className="reveal max-w-[340px] text-body text-ink-2" style={{ "--d": "300ms" } as React.CSSProperties}>
             Photographers mark the frames worth printing with a grease pencil. Atlas does the shooting; you mark the two decisions that matter.
           </p>
-          <Photo src="/images/negatives.webp" alt="A strip of negatives drying under a warm safelight" className="hidden h-[210px] w-[168px] shrink-0 rounded-[22px] sm:block" sizes="168px" />
+          <div className="reveal hidden shrink-0 sm:block" style={{ "--d": "450ms" } as React.CSSProperties}>
+            <Photo src="/images/negatives.webp" alt="A strip of negatives drying under a warm safelight" drift className="h-[210px] w-[168px] rounded-[22px]" sizes="168px" />
+          </div>
         </div>
       </div>
 
@@ -53,18 +87,18 @@ export function ContactSheet() {
           </div>
         ))}
         <div className="grid gap-x-5 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
-          <Frame n="01A" caption={<><b className="font-semibold text-ink">Describe it.</b> One sentence, in your words.</>}>
+          <Frame n="01A" delay={600} caption={<><b className="font-semibold text-ink">Describe it.</b> One sentence, in your words.</>}>
             <span className="font-mono text-[10px] text-ink-3">REQUEST</span>
             <span className="rounded-[10px] bg-surface-0 p-3 text-[13px] leading-[1.4] text-ink">
               customer revenue from Stripe and Postgres events<span className="text-safelight">|</span>
             </span>
           </Frame>
-          <Frame n="02A" you loop={LOOP_A} caption={<><b className="font-semibold text-ink">Confirm the sources.</b> Keep the matches or start fresh.</>}>
+          <Frame n="02A" delay={850} you loop={LOOP_A} caption={<><b className="font-semibold text-ink">Confirm the sources.</b> Keep the matches or start fresh.</>}>
             {["raw.stripe_payments", "public.customers", "public.orders"].map((s) => (
               <span key={s} className="rounded-sm bg-surface-2 px-2.5 py-2 font-mono text-[11px] text-ink">● {s}</span>
             ))}
           </Frame>
-          <Frame n="03A" caption={<><b className="font-semibold text-ink">Review the output.</b> Code checks the code.</>}>
+          <Frame n="03A" delay={1100} caption={<><b className="font-semibold text-ink">Review the output.</b> Code checks the code.</>}>
             <span className="flex flex-col font-mono text-[10px] leading-[1.7] text-ink-2">
               <span>select payment_id,</span>
               <span>  amount_cents / 100.0,</span>
@@ -73,7 +107,7 @@ export function ContactSheet() {
             </span>
             <span className="self-start rounded-full bg-critical-wash px-2 py-0.5 font-mono text-[10px] text-critical">QA · 1 critical</span>
           </Frame>
-          <Frame n="04A" you loop={LOOP_B} caption={<><b className="font-semibold text-ink">Write back, or don’t.</b> DataHub only changes when you say so.</>}>
+          <Frame n="04A" delay={1350} you loop={LOOP_B} caption={<><b className="font-semibold text-ink">Write back, or don’t.</b> DataHub only changes when you say so.</>}>
             <svg aria-hidden width="100%" height="70%" viewBox="0 0 200 100">
               <g fill="none" stroke="var(--moss-deep)" strokeWidth={1.5}>
                 <path d="M10 15 C 80 15, 100 50, 170 50" />
@@ -86,6 +120,7 @@ export function ContactSheet() {
           </Frame>
         </div>
       </div>
+     </InView>
     </section>
   );
 }
@@ -157,50 +192,6 @@ export function Pipeline() {
   );
 }
 
-const STG = ["select", "    payment_id,", "    customer_id,", "    amount_cents / 100.0 as amount_usd,", "    currency,", "    card_last4,", "    created_at", "from source"];
-
-export function QaSection() {
-  return (
-    <section id="qa" className="grid scroll-mt-6 grid-cols-[repeat(auto-fit,minmax(min(100%,420px),1fr))] items-center gap-14 pt-24 md:pt-[168px]">
-      <div className="flex flex-col gap-6">
-        <Heading>Every column, under the loupe.</Heading>
-        <p className="max-w-[440px] text-body text-ink-2">
-          QA parses each model and traces every column back to a dataset in your catalog. A column it can’t trace, or a PII column left unmasked, stops the writeback and names the line.
-        </p>
-        <ul className="flex flex-col gap-0.5 overflow-hidden rounded-[18px]">
-          {[
-            ["SQL parses", "passed", "text-moss", "bg-surface-1"],
-            ["Every column resolves to DataHub", "passed", "text-moss", "bg-surface-1"],
-            ["PII stays masked", "critical · line 10", "text-critical", "bg-critical-wash"],
-            ["Keys have unique and not_null tests", "passed", "text-moss", "bg-surface-1"],
-          ].map(([name, verdict, tone, bg]) => (
-            <li key={name} className={`flex justify-between gap-4 px-[18px] py-3.5 text-small text-ink ${bg}`}>
-              <span>{name}</span>
-              <span className={`font-mono text-[12px] ${tone}`}>{verdict}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div className="relative px-4 py-14 sm:pr-12 sm:pl-10">
-        <Photo src="/images/schema-desk.webp" alt="" className="!absolute inset-0 rounded-[32px] opacity-70" sizes="(min-width: 768px) 50vw, 100vw" />
-        <div className="relative overflow-x-auto rounded-lg bg-surface-1/95 py-[22px] font-mono text-[13px] leading-[26px] text-ink-3 hairline">
-          <div className="px-[22px] pb-3 text-[11px] text-ink-3">models/staging/stg_stripe_payments.sql</div>
-          {STG.map((line, i) => (
-            <div key={i} className={`px-[22px] whitespace-pre ${i === 5 ? "bg-critical-wash text-critical" : ""}`}>
-              <span className={`inline-block w-8 ${i === 5 ? "" : "text-ink-3/50"}`}>{i + 5}</span>
-              {line}
-            </div>
-          ))}
-        </div>
-        <Loupe lines={STG} flagged={6} size={220} top={96} className="right-3 hidden sm:block" />
-        <span aria-hidden className="absolute top-[336px] right-[30px] hidden rotate-[-4deg] font-hand text-[22px] text-critical [text-shadow:0_2px_12px_rgb(0_0_0/0.8)] sm:block">
-          mask this before it ships
-        </span>
-      </div>
-    </section>
-  );
-}
-
 const FAQ = [
   {
     q: "Does Atlas run the SQL it writes?",
@@ -260,7 +251,7 @@ export function Colophon() {
           <a href="https://github.com/Elisabeth56/Atlas-AI/tree/main/docs/decisions" className="text-ink-2 hover:text-ink">Decision records</a>
         </div>
         <p className="max-w-[340px] text-small leading-[1.6] text-ink-3">
-          Set in Hanken Grotesk and JetBrains Mono. Grounded in DataHub, written as dbt, checked by code. Developed by Elisabeth Nnamani in Nsukka.
+          Set in Hanken Grotesk and JetBrains Mono. Grounded in DataHub, written as dbt, checked by code. Developed by Elisabeth Nnamani.
         </p>
         <div className="self-start justify-self-start rotate-[-3deg] rounded-[10px] border-[1.5px] border-dashed border-ink-3/70 px-[18px] py-3.5 font-mono text-[11px] leading-[1.7] tracking-[0.08em] text-ink-3 sm:justify-self-end">
           PRINT NO. 001
