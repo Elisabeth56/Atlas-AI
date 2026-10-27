@@ -264,7 +264,12 @@ export function Colophon() {
       {/* the wordmark set like a print's back stamp: decoration, so an image rather than text */}
       <svg aria-hidden viewBox="0 0 1000 250" className="mt-[72px] -mb-[0.5%] block w-full select-none">
         <text x="500" y="232" textAnchor="middle" fill="var(--surface-1)" fontSize="330" fontWeight={600} letterSpacing="-20">
-          Atlas
+          {/* each letter takes the accent under the pointer, as in the FlowMind footer */}
+          {"Atlas".split("").map((letter, i) => (
+            <tspan key={i} className="wordmark-letter">
+              {letter}
+            </tspan>
+          ))}
         </text>
       </svg>
     </footer>
