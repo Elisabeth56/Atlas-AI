@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Mock LLM responses. DataHub is separate: it goes live whenever DATAHUB_GMS_URL is set.
     DEMO_MODE: bool = True
 
+    # Runs are created here until sign-in lands (#25); matches supabase/seed.sql.
+    DEMO_WORKSPACE_ID: str = "00000000-0000-0000-0000-0000000000d0"
+
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas"
     DB_ECHO: bool = False

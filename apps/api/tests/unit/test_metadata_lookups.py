@@ -41,7 +41,7 @@ def _ctx(gateway) -> RunContext:
         pass
 
     return RunContext(
-        request_id="r", prompt="p", llm=MockLLMProvider(fixtures={}), datahub=gateway,
+        run_id="r", prompt="p", llm=MockLLMProvider(fixtures={}), datahub=gateway,
         emit_log=emit_log,
     )
 

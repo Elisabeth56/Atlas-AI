@@ -19,7 +19,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * Drives the live run UI. With NEXT_PUBLIC_API_URL unset, it simulates the
  * pipeline locally so the frontend is fully demoable without a backend.
  * Once NEXT_PUBLIC_API_URL is set, it connects to
- * WS /api/requests/{id}/stream and consumes real {agent, status} events —
+ * WS /api/runs/{id}/stream and consumes real {agent, status} events —
  * no other component needs to change.
  *
  * `pausedAt` reflects the two human-in-the-loop checkpoints: "context"

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Database, Sparkles, ArrowRight, Tag, User } from "lucide-react";
-import { getRequest, acceptContext, startFresh } from "@/lib/api";
+import { getRun, acceptContext, startFresh } from "@/lib/api";
 import type { MatchedDataset } from "@/lib/types";
 
 export function ContextReviewPanel({ requestId }: { requestId: string }) {
@@ -13,11 +13,11 @@ export function ContextReviewPanel({ requestId }: { requestId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    getRequest(requestId)
+    getRun(requestId)
       .then((req) => {
         if (cancelled) return;
-        const run = req.agent_runs.find((r) => r.agent_name === "metadata_analyst");
-        const matched = (run?.output_json?.matched_datasets as MatchedDataset[] | undefined) ?? [];
+        const run = req.steps.find((r) => r.agent === "metadata_analyst");
+        const matched = (run?.output?.matched_datasets as MatchedDataset[] | undefined) ?? [];
         setDatasets(matched);
       })
       .catch((err) => {

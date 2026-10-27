@@ -7,7 +7,7 @@ import { Nav } from "@/components/layout/Nav";
 import { Footer } from "@/components/layout/Footer";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 import { DEMO_PROMPT } from "@/lib/pipeline";
-import { createRequest } from "@/lib/api";
+import { createRun } from "@/lib/api";
 
 export default function DemoPage() {
   const router = useRouter();
@@ -18,8 +18,8 @@ export default function DemoPage() {
     setStarting(true);
     setError(null);
     try {
-      const { request_id } = await createRequest(DEMO_PROMPT);
-      router.push(`/agents/${request_id}?prompt=${encodeURIComponent(DEMO_PROMPT)}`);
+      const { run_id } = await createRun(DEMO_PROMPT);
+      router.push(`/agents/${run_id}?prompt=${encodeURIComponent(DEMO_PROMPT)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start the demo run.");
       setStarting(false);

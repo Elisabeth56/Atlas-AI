@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { createRequest } from "@/lib/api";
+import { createRun } from "@/lib/api";
 import { DEMO_PROMPT } from "@/lib/pipeline";
 
 export function NewRunButton({ label = "Start new run" }: { label?: string }) {
@@ -13,8 +13,8 @@ export function NewRunButton({ label = "Start new run" }: { label?: string }) {
   async function handleClick() {
     setStarting(true);
     try {
-      const { request_id } = await createRequest(DEMO_PROMPT);
-      router.push(`/agents/${request_id}?prompt=${encodeURIComponent(DEMO_PROMPT)}`);
+      const { run_id } = await createRun(DEMO_PROMPT);
+      router.push(`/agents/${run_id}?prompt=${encodeURIComponent(DEMO_PROMPT)}`);
     } catch {
       setStarting(false);
     }

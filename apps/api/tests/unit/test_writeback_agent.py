@@ -20,7 +20,7 @@ def _ctx(gateway: MockDataHubGateway) -> RunContext:
         pass
 
     ctx = RunContext(
-        request_id="req-1",
+        run_id="req-1",
         prompt="customer revenue",
         llm=MockLLMProvider(fixtures={}),
         datahub=gateway,

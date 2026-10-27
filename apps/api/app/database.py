@@ -59,12 +59,6 @@ async def session_scope() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def init_models() -> None:
-    """Creates missing tables. Replaced by Supabase migrations (ADR 002)."""
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
 async def dispose_engine() -> None:
     await _engine.dispose()
 

@@ -6,7 +6,7 @@ Pipeline runner: three phases separated by two human checkpoints.
     writeback:   writeback (only if approved)          -> complete
 
 Each phase runs as its own task. Nothing is held in memory across a pause: a resuming
-phase rebuilds earlier results from agent_runs.output_json. Plain async/await, no graph
+phase rebuilds earlier results from steps.output. Plain async/await, no graph
 framework: the phases are fixed and never loop.
 """
 from __future__ import annotations
@@ -34,12 +34,12 @@ from app.demo.seed_data import mock_llm_fixtures
 from app.llm.chain import ProviderChain, providers_from_settings
 from app.llm.mock_provider import MockLLMProvider
 from app.llm.provider import LLMProvider
-from app.models import AgentRun, Artifact, Request, ValidationReport
-from app.schemas import AGENT_SEQUENCE, AgentRunEvent, GeneratedFile, WSResult
+from app.models import Artifact, Run, RunStep, ValidationReport
+from app.schemas import AGENT_SEQUENCE, GeneratedFile, RunEvent, WSResult
 
 logger = logging.getLogger("atlas.orchestrator")
 
-# index doubles as AgentRun.sequence; the frontend stepper renders the same order
+# index doubles as RunStep.sequence; the frontend stepper renders the same order
 PIPELINE: list[Agent] = [
     PlannerAgent(),
     MetadataAnalystAgent(),
@@ -117,16 +117,16 @@ def _build_datahub_gateway() -> DataHubGateway:
     )
 
 
-def _make_context(request_id: str, prompt: str) -> RunContext:
+def _make_context(run_id: str, prompt: str) -> RunContext:
     ctx: RunContext
 
     async def emit_log(text: str) -> None:
         logger.info(
-            "agent_log request_id=%s agent=%s message=%s", request_id, ctx.current_agent, text
+            "agent_log run_id=%s agent=%s message=%s", run_id, ctx.current_agent, text
         )
 
     ctx = RunContext(
-        request_id=request_id,
+        run_id=run_id,
         prompt=prompt,
         llm=_build_llm_provider(),
         datahub=_build_datahub_gateway(),
@@ -135,20 +135,19 @@ def _make_context(request_id: str, prompt: str) -> RunContext:
     return ctx
 
 
-async def _load_prior_results(request_id: str) -> dict[str, dict]:
+async def _load_prior_results(run_id: str) -> dict[str, dict]:
     """Rebuilds RunContext.results from successful stages, for a phase resuming after a pause."""
     async with session_scope() as db:
         result = await db.execute(
-            select(AgentRun)
-            .where(AgentRun.request_id == request_id, AgentRun.status == "success")
-            .order_by(AgentRun.sequence)
+            select(RunStep)
+            .where(RunStep.run_id == run_id, RunStep.status == "success")
+            .order_by(RunStep.sequence)
         )
-        runs = result.scalars().all()
-        return {run.agent_name: run.output_json or {} for run in runs}
+        return {step.agent: step.output or {} for step in result.scalars().all()}
 
 
 async def _run_phase_agents(
-    request_id: str,
+    run_id: str,
     ctx: RunContext,
     phase: list[tuple[int, Agent]],
     *,
@@ -162,70 +161,70 @@ async def _run_phase_agents(
     for index, (sequence, agent) in enumerate(phase):
         ctx.current_agent = agent.name
 
-        await _persist_stage_start(request_id, sequence, agent.name)
-        await ws_hub.broadcast(request_id, AgentRunEvent(agent=agent.name, status="started"))
+        await _persist_stage_start(run_id, sequence, agent.name)
+        await ws_hub.broadcast(run_id, RunEvent(agent=agent.name, status="started"))
 
         try:
             result: AgentResult = await agent.run(ctx)
         except Exception as exc:  # noqa: BLE001 — any agent failure aborts the run
-            logger.exception("agent %s failed for request %s", agent.name, request_id)
-            await _persist_stage_failure(request_id, sequence, agent.name, str(exc))
+            logger.exception("agent %s failed for run %s", agent.name, run_id)
+            await _persist_stage_failure(run_id, sequence, agent.name, str(exc))
             await ws_hub.broadcast(
-                request_id, AgentRunEvent(agent=agent.name, status="failed", error=str(exc)),
+                run_id, RunEvent(agent=agent.name, status="failed", error=str(exc)),
             )
             return False
 
         ctx.results[agent.name] = result.data
         is_last = index == len(phase) - 1
         await _persist_stage_success(
-            request_id, sequence, agent.name, result,
+            run_id, sequence, agent.name, result,
             status=end_status if is_last else None,
         )
         await ws_hub.broadcast(
-            request_id,
-            AgentRunEvent(agent=agent.name, status="done", result=WSResult(summary=result.summary)),
+            run_id,
+            RunEvent(agent=agent.name, status="done", result=WSResult(summary=result.summary)),
         )
     return True
 
 
-async def run_context_phase(request_id: str, prompt: str) -> None:
+async def run_context_phase(run_id: str, prompt: str) -> None:
     """Phase 1. Always pauses at the end, even with no matches, so starting fresh is a visible choice."""
     async with session_scope() as db:
-        request = await db.get(Request, request_id)
-        if request is None:
-            logger.error("run_context_phase: request %s not found", request_id)
+        run = await db.get(Run, run_id)
+        if run is None:
+            logger.error("run_context_phase: run %s not found", run_id)
             return
-        request.status = "running"
+        run.status = "running"
 
-    ctx = _make_context(request_id, prompt)
-    ok = await _run_phase_agents(request_id, ctx, CONTEXT_PHASE)
+    ctx = _make_context(run_id, prompt)
+    ok = await _run_phase_agents(run_id, ctx, CONTEXT_PHASE)
     if not ok:
-        await _finalize_request(request_id, status="failed")
+        await _finalize_request(run_id, status="failed")
         return
 
-    await _set_status(request_id, "awaiting_context_approval")
+    await _set_status(run_id, "awaiting_context_approval")
     await ws_hub.broadcast(
-        request_id,
-        AgentRunEvent(agent="metadata_analyst", status="awaiting_approval"),
+        run_id,
+        RunEvent(agent="metadata_analyst", status="awaiting_approval"),
     )
 
 
-async def resume_generation_phase(request_id: str) -> None:
+async def resume_generation_phase(run_id: str) -> None:
     """Phase 2. Runs after the endpoint claimed the run; "fresh" mode drops the matched datasets."""
     async with session_scope() as db:
-        request = await db.get(Request, request_id)
+        run = await db.get(Run, run_id)
         # the endpoint already claimed the run (status=running, context_mode set)
-        if request is None or request.status != "running":
+        if run is None or run.status != "running":
             logger.error(
-                "resume_generation_phase: request %s not claimed (status=%s)",
-                request_id, request.status if request else "missing",
+                "resume_generation_phase: run %s not claimed (status=%s)",
+                run_id, run.status if run else "missing",
             )
             return
-        context_mode = request.context_mode
-        prompt = request.prompt
+        context_mode = run.context_mode
+        prompt = run.prompt
 
-    ctx = _make_context(request_id, prompt)
-    ctx.results = await _load_prior_results(request_id)
+    ctx = _make_context(run_id, prompt)
+    ctx.results = await _load_prior_results(run_id)
 
     if context_mode == "fresh" and "metadata_analyst" in ctx.results:
         # strip the matches for real, so "start fresh" changes what the data engineer sees
@@ -235,122 +234,122 @@ async def resume_generation_phase(request_id: str) -> None:
         }
 
     ok = await _run_phase_agents(
-        request_id, ctx, GENERATION_PHASE, end_status="awaiting_writeback_approval"
+        run_id, ctx, GENERATION_PHASE, end_status="awaiting_writeback_approval"
     )
     if not ok:
-        await _finalize_request(request_id, status="failed")
+        await _finalize_request(run_id, status="failed")
         return
 
     await ws_hub.broadcast(
-        request_id,
-        AgentRunEvent(agent="writeback", status="awaiting_approval"),
+        run_id,
+        RunEvent(agent="writeback", status="awaiting_approval"),
     )
 
 
-async def resume_writeback_phase(request_id: str) -> None:
+async def resume_writeback_phase(run_id: str) -> None:
     """Phase 3. Skipping still completes the run; only DataHub is affected by the choice."""
     async with session_scope() as db:
-        request = await db.get(Request, request_id)
+        run = await db.get(Run, run_id)
         # the endpoint already claimed the run (status=running, writeback_mode set)
-        if request is None or request.status != "running":
+        if run is None or run.status != "running":
             logger.error(
-                "resume_writeback_phase: request %s not claimed (status=%s)",
-                request_id, request.status if request else "missing",
+                "resume_writeback_phase: run %s not claimed (status=%s)",
+                run_id, run.status if run else "missing",
             )
             return
-        approved = request.writeback_mode == "approved"
-        prompt = request.prompt
+        approved = run.writeback_mode == "approved"
+        prompt = run.prompt
 
     if not approved:
         await ws_hub.broadcast(
-            request_id,
-            AgentRunEvent(agent="writeback", status="done", result=WSResult(summary="writeback skipped by user")),
+            run_id,
+            RunEvent(agent="writeback", status="done", result=WSResult(summary="writeback skipped by user")),
         )
-        await _finalize_request(request_id, status="complete")
+        await _finalize_request(run_id, status="complete")
         return
 
-    ctx = _make_context(request_id, prompt)
-    ctx.results = await _load_prior_results(request_id)
+    ctx = _make_context(run_id, prompt)
+    ctx.results = await _load_prior_results(run_id)
 
-    ok = await _run_phase_agents(request_id, ctx, WRITEBACK_PHASE)
-    await _finalize_request(request_id, status="complete" if ok else "failed")
+    ok = await _run_phase_agents(run_id, ctx, WRITEBACK_PHASE)
+    await _finalize_request(run_id, status="complete" if ok else "failed")
 
 
 # Each helper uses its own short transaction, so a crash never leaves one spanning stages.
 
 
-async def _persist_stage_start(request_id: str, sequence: int, agent_name: str) -> None:
+async def _persist_stage_start(run_id: str, sequence: int, agent: str) -> None:
     async with session_scope() as db:
-        run = await _get_or_create_agent_run(db, request_id, sequence, agent_name)
-        run.status = "started"
-        run.started_at = datetime.now(UTC)
+        step = await _get_or_create_step(db, run_id, sequence, agent)
+        step.status = "started"
+        step.started_at = datetime.now(UTC)
 
 
 async def _persist_stage_success(
-    request_id: str,
+    run_id: str,
     sequence: int,
-    agent_name: str,
+    agent: str,
     result: AgentResult,
     *,
     status: str | None = None,
 ) -> None:
     """Saves a finished stage and everything it produced in one transaction."""
     async with session_scope() as db:
-        run = await _get_or_create_agent_run(db, request_id, sequence, agent_name)
-        run.status = "success"
-        run.finished_at = datetime.now(UTC)
-        run.output_json = result.data
+        step = await _get_or_create_step(db, run_id, sequence, agent)
+        step.status = "success"
+        step.finished_at = datetime.now(UTC)
+        step.output = result.data
 
         if "files" in result.data:
-            await _replace_artifacts(db, request_id, agent_name, result.data["files"])
-        if agent_name == "qa":
-            await _replace_validation_report(db, request_id, result.data)
+            await _replace_artifacts(db, run_id, agent, result.data["files"])
+        if agent == "qa":
+            await _replace_validation_report(db, run_id, result.data)
         if status is not None:
-            request = await db.get(Request, request_id)
-            request.status = status
+            run = await db.get(Run, run_id)
+            run.status = status
 
 
 async def _persist_stage_failure(
-    request_id: str, sequence: int, agent_name: str, error: str
+    run_id: str, sequence: int, agent: str, error: str
 ) -> None:
     async with session_scope() as db:
-        run = await _get_or_create_agent_run(db, request_id, sequence, agent_name)
-        run.status = "failed"
-        run.finished_at = datetime.now(UTC)
-        run.error = error
+        step = await _get_or_create_step(db, run_id, sequence, agent)
+        step.status = "failed"
+        step.finished_at = datetime.now(UTC)
+        step.error = error
 
 
-async def _get_or_create_agent_run(
-    db: AsyncSession, request_id: str, sequence: int, agent_name: str
-) -> AgentRun:
+async def _get_or_create_step(
+    db: AsyncSession, run_id: str, sequence: int, agent: str
+) -> RunStep:
     result = await db.execute(
-        select(AgentRun).where(
-            AgentRun.request_id == request_id, AgentRun.sequence == sequence
+        select(RunStep).where(
+            RunStep.run_id == run_id, RunStep.sequence == sequence
         )
     )
-    run = result.scalar_one_or_none()
-    if run is None:
-        run = AgentRun(request_id=request_id, sequence=sequence, agent_name=agent_name)
-        db.add(run)
+    step = result.scalar_one_or_none()
+    if step is None:
+        step = RunStep(run_id=run_id, sequence=sequence, agent=agent)
+        db.add(step)
         await db.flush()
-    return run
+    return step
 
 
 async def _replace_artifacts(
-    db: AsyncSession, request_id: str, agent_name: str, files: list[dict]
+    db: AsyncSession, run_id: str, agent: str, files: list[dict]
 ) -> None:
     """Swaps in this stage's files; deleting first makes a re-run replace, not duplicate."""
     await db.execute(
         delete(Artifact).where(
-            Artifact.request_id == request_id, Artifact.source_agent == agent_name
+            Artifact.run_id == run_id, Artifact.source_agent == agent
         )
     )
     for raw in files:
         f = GeneratedFile.model_validate(raw)
         db.add(
             Artifact(
-                request_id=request_id,
-                source_agent=agent_name,
+                run_id=run_id,
+                source_agent=agent,
                 kind=f.kind,
                 filename=f.filename,
                 content=f.content,
@@ -358,13 +357,13 @@ async def _replace_artifacts(
         )
 
 
-async def _replace_validation_report(db: AsyncSession, request_id: str, qa_output: dict) -> None:
+async def _replace_validation_report(db: AsyncSession, run_id: str, qa_output: dict) -> None:
     checks = qa_output.get("checks", [])
     blocking = any(not c["passed"] and c["severity"] == "critical" for c in checks)
-    await db.execute(delete(ValidationReport).where(ValidationReport.request_id == request_id))
+    await db.execute(delete(ValidationReport).where(ValidationReport.run_id == run_id))
     db.add(
         ValidationReport(
-            request_id=request_id,
+            run_id=run_id,
             checks=checks,
             passed=qa_output.get("passed", False),
             blocking=blocking,
@@ -372,12 +371,12 @@ async def _replace_validation_report(db: AsyncSession, request_id: str, qa_outpu
     )
 
 
-async def _set_status(request_id: str, status: str) -> None:
+async def _set_status(run_id: str, status: str) -> None:
     async with session_scope() as db:
-        request = await db.get(Request, request_id)
-        if request is not None:
-            request.status = status
+        run = await db.get(Run, run_id)
+        if run is not None:
+            run.status = status
 
 
-async def _finalize_request(request_id: str, *, status: str) -> None:
-    await _set_status(request_id, status)
+async def _finalize_request(run_id: str, *, status: str) -> None:
+    await _set_status(run_id, status)

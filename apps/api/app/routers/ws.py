@@ -1,5 +1,5 @@
 """
-WebSocket route — WS /api/requests/{id}/stream — matches
+WebSocket route — WS /api/runs/{id}/stream — matches
 apps/web/lib/api.ts `streamUrl()` and hooks/useRunStream.ts exactly.
 """
 from __future__ import annotations
@@ -10,27 +10,27 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app import ws_hub
 from app.database import session_scope
-from app.models import Request
+from app.models import Run
 
 logger = logging.getLogger("atlas.routers.ws")
 
 router = APIRouter(tags=["stream"])
 
 
-@router.websocket("/api/requests/{request_id}/stream")
-async def stream_run(websocket: WebSocket, request_id: str) -> None:
+@router.websocket("/api/runs/{run_id}/stream")
+async def stream_run(websocket: WebSocket, run_id: str) -> None:
     async with session_scope() as db:
-        request = await db.get(Request, request_id)
+        run = await db.get(Run, run_id)
 
-    if request is None:
+    if run is None:
         # Accept then close with a policy-violation code so the frontend's
         # `ws.onerror` fires with a clear signal, rather than leaving the
         # client hanging on a socket that never opens.
         await websocket.accept()
-        await websocket.close(code=4404, reason="Request not found")
+        await websocket.close(code=4404, reason="Run not found")
         return
 
-    await ws_hub.manager.connect(request_id, websocket)
+    await ws_hub.manager.connect(run_id, websocket)
     try:
         while True:
             # This endpoint is server -> client only; we still need to
@@ -40,4 +40,4 @@ async def stream_run(websocket: WebSocket, request_id: str) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        await ws_hub.manager.disconnect(request_id, websocket)
+        await ws_hub.manager.disconnect(run_id, websocket)

@@ -11,10 +11,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.database import dispose_engine, init_models
+from app.database import dispose_engine
 from app.errors import install_error_handlers
 from app.orchestrator import init_datahub_mcp_gateway, shutdown_datahub_mcp_gateway
-from app.routers import requests as requests_router
+from app.routers import runs as runs_router
 from app.routers import ws as ws_router
 
 logging.basicConfig(
@@ -33,7 +33,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         settings.llm_demo_mode,
         settings.datahub_mode,
     )
-    await init_models()
     # Connects the long-lived MCP subprocess + session once, if configured
     # for MCP access. No-op (and doesn't crash boot) otherwise — see
     # orchestrator.init_datahub_mcp_gateway.
@@ -60,7 +59,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(requests_router.router)
+app.include_router(runs_router.router)
 app.include_router(ws_router.router)
 
 
