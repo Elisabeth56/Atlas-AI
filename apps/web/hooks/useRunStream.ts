@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { PIPELINE } from "@/lib/pipeline";
-import { HAS_BACKEND, streamUrl, waitForSimulationResume } from "@/lib/api";
-import type { AgentId } from "@/lib/types";
+import { HAS_BACKEND, getRun, waitForSimulationResume } from "@/lib/api";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import type { Run, RunStep } from "@/lib/types";
 
 export type StageStatus = "pending" | "running" | "done" | "failed";
 export type PauseState = "context" | "writeback" | null;
@@ -13,90 +14,107 @@ export interface LogLine {
 }
 
 const STAGE_MS = 1600;
+const POLL_MS = 1500;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const TERMINAL = new Set(["complete", "failed"]);
 
 /**
- * Drives the live run UI. With NEXT_PUBLIC_API_URL unset, it simulates the
- * pipeline locally so the frontend is fully demoable without a backend.
- * Once NEXT_PUBLIC_API_URL is set, it connects to
- * WS /api/runs/{id}/stream and consumes real {agent, status} events —
- * no other component needs to change.
- *
- * `pausedAt` reflects the two human-in-the-loop checkpoints: "context"
- * after Metadata Analyst (before Data Engineer runs) and "writeback"
- * after Documentation (before Writeback runs). The run genuinely stops
- * server-side at each — see apps/api/app/orchestrator.py — this hook just
- * surfaces that stop so a panel can render and call the accept/start-fresh
- * or approve/skip actions in lib/api.ts.
+ * The live run view. The database is the only source of truth (ADR 003): the worker writes
+ * `runs` and `run_steps`, Supabase Realtime tells us a row changed, and we refetch the run.
+ * Without Supabase configured (local, AUTH_MODE=off) it polls instead. With no backend at all
+ * it simulates the pipeline in the browser.
  */
 export function useRunStream(runId: string) {
-  const [statuses, setStatuses] = useState<StageStatus[]>(
-    PIPELINE.map(() => "pending")
-  );
-  const [logs, setLogs] = useState<LogLine[]>([]);
-  const [complete, setComplete] = useState(false);
+  const [run, setRun] = useState<Run | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [pausedAt, setPausedAt] = useState<PauseState>(null);
-  const socketRef = useRef<WebSocket | null>(null);
+  const sim = useSimulation(runId, !HAS_BACKEND);
 
   useEffect(() => {
+    if (!HAS_BACKEND) return;
     let cancelled = false;
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    let poller: ReturnType<typeof setInterval> | null = null;
 
-    if (HAS_BACKEND) {
-      const ws = new WebSocket(streamUrl(runId));
-      socketRef.current = ws;
-
-      ws.onmessage = (event) => {
+    const refresh = async () => {
+      try {
+        const next = await getRun(runId);
         if (cancelled) return;
-        const data = JSON.parse(event.data) as {
-          agent: AgentId;
-          status: "started" | "done" | "failed" | "awaiting_approval";
-          result?: { summary: string };
-          error?: string;
-        };
+        setRun(next);
+        setConnectionError(null);
+        if (TERMINAL.has(next.status) && poller) clearInterval(poller);
+      } catch (e) {
+        if (!cancelled) setConnectionError(e instanceof Error ? e.message : "Couldn’t load this run.");
+      }
+    };
+    // one burst of row changes (a stage finishing writes several) becomes one fetch
+    const refreshSoon = () => {
+      if (pending) clearTimeout(pending);
+      pending = setTimeout(refresh, 150);
+    };
+    const startPolling = () => {
+      poller ??= setInterval(refresh, POLL_MS);
+    };
 
-        if (data.status === "awaiting_approval") {
-          // Pause signal only — doesn't touch the stepper. The paused
-          // agent's own started/done events (if any ran) already fired
-          // separately and are what the stepper reflects.
-          setPausedAt(data.agent === "metadata_analyst" ? "context" : "writeback");
-          return;
-        }
-
-        const idx = PIPELINE.findIndex((s) => s.id === data.agent);
-        if (idx === -1) return;
-
-        setStatuses((prev) => {
-          const next = [...prev];
-          next[idx] = data.status === "started" ? "running" : data.status === "failed" ? "failed" : "done";
-          return next;
-        });
-
-        if (data.status === "started") {
-          setPausedAt(null); // resuming clears whichever checkpoint we were at
-          setLogs((prev) => [...prev, { agent: data.agent, text: "started" }]);
-        } else if (data.status === "done") {
-          setLogs((prev) => [
-            ...prev,
-            { agent: data.agent, text: data.result?.summary ?? "done" },
-          ]);
-          if (idx === PIPELINE.length - 1) setComplete(true);
-        } else if (data.status === "failed") {
-          setLogs((prev) => [...prev, { agent: data.agent, text: `failed: ${data.error}` }]);
-        }
-      };
-
-      ws.onerror = () => {
-        if (!cancelled) setConnectionError("Lost connection to the run stream.");
-      };
-
+    refresh();
+    const supabase = supabaseBrowser();
+    if (!supabase) {
+      startPolling();
       return () => {
         cancelled = true;
-        ws.close();
+        if (poller) clearInterval(poller);
       };
     }
 
-    // --- Local simulation fallback (no backend configured) ---
+    const channel = supabase
+      .channel(`run:${runId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "runs", filter: `id=eq.${runId}` }, refreshSoon)
+      .on("postgres_changes", { event: "*", schema: "public", table: "run_steps", filter: `run_id=eq.${runId}` }, refreshSoon)
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") refreshSoon(); // catch up on anything missed while (re)connecting
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") startPolling();
+      });
+
+    return () => {
+      cancelled = true;
+      if (pending) clearTimeout(pending);
+      if (poller) clearInterval(poller);
+      supabase.removeChannel(channel);
+    };
+  }, [runId]);
+
+  if (!HAS_BACKEND) return { ...sim, run: null, failed: false, connectionError: null, live: false };
+  return { ...fromRun(run), run, connectionError, live: true };
+}
+
+function fromRun(run: Run | null) {
+  const byAgent = new Map<string, RunStep>((run?.steps ?? []).map((s) => [s.agent, s]));
+  const statuses: StageStatus[] = PIPELINE.map((stage) => {
+    const step = byAgent.get(stage.id);
+    if (!step) return "pending";
+    return step.status === "started" ? "running" : step.status === "success" ? "done" : step.status === "failed" ? "failed" : "pending";
+  });
+  const logs: LogLine[] = PIPELINE.flatMap((stage) => {
+    const step = byAgent.get(stage.id);
+    if (!step) return [];
+    const lines = step.logs.map((text) => ({ agent: stage.id, text }));
+    return step.error ? [...lines, { agent: stage.id, text: `failed: ${step.error}` }] : lines;
+  });
+  const pausedAt: PauseState =
+    run?.status === "awaiting_context_approval" ? "context" : run?.status === "awaiting_writeback_approval" ? "writeback" : null;
+  return { statuses, logs, pausedAt, complete: run?.status === "complete", failed: run?.status === "failed" };
+}
+
+/** Browser-only stand-in for the pipeline, used when no backend is configured. */
+function useSimulation(runId: string, enabled: boolean) {
+  const [statuses, setStatuses] = useState<StageStatus[]>(PIPELINE.map(() => "pending"));
+  const [logs, setLogs] = useState<LogLine[]>([]);
+  const [complete, setComplete] = useState(false);
+  const [pausedAt, setPausedAt] = useState<PauseState>(null);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
     async function simulate() {
       for (let i = 0; i < PIPELINE.length; i++) {
         if (cancelled) return;
@@ -148,7 +166,7 @@ export function useRunStream(runId: string) {
     return () => {
       cancelled = true;
     };
-  }, [runId]);
+  }, [runId, enabled]);
 
-  return { statuses, logs, complete, connectionError, pausedAt, live: HAS_BACKEND };
+  return { statuses, logs, complete, pausedAt };
 }

@@ -27,7 +27,7 @@ export const HAS_BACKEND =
 // browser and pauses at each checkpoint. The checkpoint panels still call
 // acceptContext / startFresh / approveWriteback / skipWriteback — postAction
 // below fires the matching resolver so the simulation advances past the
-// pause, mirroring what the backend does over WS in real mode.
+// pause, mirroring what the checkpoint endpoints do in real mode.
 
 type ResumeSignal = () => void;
 const resumeSignals = new Map<string, ResumeSignal[]>();
@@ -121,12 +121,6 @@ export async function skipWriteback(requestId: string): Promise<void> {
   return postAction(requestId, "/writeback/skip");
 }
 
-// WS /api/runs/{id}/stream — build a live socket URL for useRunStream.
-export function streamUrl(requestId: string): string {
-  const base = API_BASE.replace(/^http/, "ws") || "ws://localhost:8000";
-  return `${base}/api/runs/${requestId}/stream`;
-}
-
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -191,6 +185,7 @@ function mockRun(requestId: string): Run {
               } as Record<string, unknown>)
             : null,
       error: null,
+      logs: [],
     })),
   };
 }

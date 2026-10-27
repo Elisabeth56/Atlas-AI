@@ -13,7 +13,6 @@ from app.schemas import (
     DocumentationOutput,
     MetadataAnalystOutput,
     PlannerOutput,
-    RunEvent,
     WritebackOutput,
 )
 
@@ -45,17 +44,3 @@ def test_every_demo_fixture_validates_against_its_schema() -> None:
         # Round-trips through dict -> schema exactly like MockLLMProvider does.
         revalidated = schema.model_validate(fixture.model_dump())
         assert revalidated == fixture
-
-
-def test_ws_event_shape_matches_frontend_contract() -> None:
-    """Mirrors RunEvent in apps/web/lib/types.ts."""
-    started = RunEvent(agent="planner", status="started")
-    assert started.model_dump(exclude_none=True) == {"agent": "planner", "status": "started"}
-
-    done = RunEvent(agent="planner", status="done", result={"summary": "ok"})
-    dumped = done.model_dump(exclude_none=True)
-    assert dumped["status"] == "done"
-    assert dumped["result"] == {"summary": "ok"}
-
-    failed = RunEvent(agent="qa", status="failed", error="boom")
-    assert failed.model_dump(exclude_none=True)["error"] == "boom"

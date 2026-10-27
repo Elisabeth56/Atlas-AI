@@ -37,13 +37,6 @@ AGENT_SEQUENCE: list[AgentId] = [
 # DB / REST vocabulary for an individual agent run.
 AgentRunStatus = Literal["pending", "started", "success", "failed"]
 
-# WebSocket event vocabulary. "awaiting_approval" is a genuine pause signal,
-# not a stage outcome — it fires once for the checkpoint agent
-# ("metadata_analyst" for the context checkpoint, "writeback" for the
-# writeback checkpoint) and the frontend must call the corresponding
-# approve/skip endpoint before anything else happens.
-WSAgentStatus = Literal["started", "done", "failed", "awaiting_approval"]
-
 RequestStatus = Literal[
     "pending",
     "running",
@@ -61,27 +54,6 @@ ArtifactKind = Literal["dbt_model", "sql", "test", "doc", "config"]
 ValidationSeverity = Literal["info", "warning", "critical"]
 
 
-# --- WebSocket event ------------------------------------------------
-
-class WSResult(BaseModel):
-    summary: str
-
-
-class RunEvent(BaseModel):
-    """
-    Exact shape consumed by `hooks/useRunStream.ts`. Sent as raw JSON text
-    over the `/api/runs/{id}/stream` socket — one event per stage
-    transition (started -> done|failed).
-    """
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    agent: AgentId
-    status: WSAgentStatus
-    result: WSResult | None = None
-    error: str | None = None
-
-
 # --- REST: agent runs -----------------------------------------------
 
 class RunStepOut(BaseModel):
@@ -96,6 +68,7 @@ class RunStepOut(BaseModel):
     input: dict | None
     output: dict | None
     error: str | None
+    logs: list[str]
 
 
 # --- REST: requests ---------------------------------------------------

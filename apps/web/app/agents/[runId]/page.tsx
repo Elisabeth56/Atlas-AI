@@ -16,7 +16,7 @@ export default function RunPage() {
   const search = useSearchParams();
   const prompt = search.get("prompt") ?? DEMO_PROMPT;
 
-  const { statuses, logs, complete, connectionError, pausedAt, live } = useRunStream(params.runId);
+  const { statuses, logs, complete, failed, connectionError, pausedAt, live } = useRunStream(params.runId);
 
   return (
     <>
@@ -53,6 +53,12 @@ export default function RunPage() {
               <ExecutionLog lines={logs} />
             </div>
           </div>
+
+          {failed && (
+            <div className="mt-5 rounded-lg border border-accent-dim-border bg-accent-dim px-4 py-3 text-[13px] text-text-heading">
+              This run stopped at a failed step. The log above shows the error.
+            </div>
+          )}
 
           {pausedAt === "context" && <ContextReviewPanel requestId={params.runId} />}
           {pausedAt === "writeback" && <WritebackApprovalPanel requestId={params.runId} />}
