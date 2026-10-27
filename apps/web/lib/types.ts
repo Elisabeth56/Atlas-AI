@@ -73,6 +73,7 @@ export interface MatchedDataset {
   columns: string[];
   owners: string[];
   tags: string[];
+  pii_columns?: string[]; // from DataHub's schema tags
 }
 
 export type ArtifactKind = "dbt_model" | "sql" | "test" | "doc" | "config";

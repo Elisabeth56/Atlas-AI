@@ -12,6 +12,7 @@ import asyncio
 import yaml
 
 from app.agents.base import Agent, AgentResult, RunContext
+from app.datahub.gateway import is_pii
 from app.qa.fixes import suggest_mask
 from app.qa.grounding import ModelCheck, Table, check_models, parse_errors, table_key
 from app.schemas import GeneratedFile, MatchedDataset, ValidationCheckOut
@@ -80,14 +81,9 @@ async def _load_catalog(ctx: RunContext, datasets: list[MatchedDataset]) -> tupl
             empty.append(ds.name)
         catalog[table_key(ds.name)] = Table(
             columns=[f["name"].lower() for f in fields],
-            pii={f["name"].lower() for f in fields if _is_pii(f)},
+            pii={f["name"].lower() for f in fields if is_pii(f)},
         )
     return catalog, empty
-
-
-def _is_pii(field: dict) -> bool:
-    tags = " ".join(str(t) for t in field.get("tags") or [])
-    return "pii" in (field.get("description") or "").lower() or "pii" in tags.lower()
 
 
 def _columns_check(results: list[ModelCheck]) -> ValidationCheckOut:

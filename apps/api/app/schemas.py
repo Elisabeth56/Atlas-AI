@@ -192,6 +192,7 @@ class MatchedDataset(BaseModel):
     columns: list[str]
     owners: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    pii_columns: list[str] = Field(default_factory=list)  # from DataHub, filled in after the model answers
 
 
 class MetadataAnalystOutput(BaseModel):

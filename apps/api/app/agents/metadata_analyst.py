@@ -8,6 +8,7 @@ import asyncio
 import json
 
 from app.agents.base import Agent, AgentResult, RunContext
+from app.datahub.gateway import is_pii
 from app.schemas import MetadataAnalystOutput
 
 # enough to overlap network waits without flooding the MCP server
@@ -70,6 +71,13 @@ class MetadataAnalystAgent(Agent):
             user_prompt=user_prompt,
             schema=MetadataAnalystOutput,
         )
+
+        # the model picks and ranks datasets; the columns and PII flags people see come from DataHub itself
+        for ds in output.matched_datasets:
+            fields = [f for f in candidates.get(ds.urn, {}).get("schema", []) if f.get("name")]
+            if fields:
+                ds.columns = [f["name"] for f in fields]
+                ds.pii_columns = [f["name"] for f in fields if is_pii(f)]
 
         top = output.matched_datasets[:3]
         if top:
