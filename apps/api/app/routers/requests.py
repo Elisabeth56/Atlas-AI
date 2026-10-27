@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.errors import AppError
 from app.models import Artifact, Request, ValidationReport
 from app.orchestrator import resume_generation_phase, resume_writeback_phase, run_context_phase
 from app.schemas import (
@@ -88,10 +89,11 @@ async def _claim(db: AsyncSession, request_id: str, expected: str, **changes: st
 
     current = await db.get(Request, request_id)
     if current is None:
-        raise HTTPException(status_code=404, detail="Request not found")
-    raise HTTPException(
-        status_code=409,
-        detail=f"Request is '{current.status}', expected '{expected}' for this action.",
+        raise AppError(404, "run_not_found", "That run doesn’t exist.")
+    raise AppError(
+        409, "checkpoint_conflict",
+        "This run has already moved past that step. Refresh to see where it is.",
+        {"status": current.status, "expected": expected},
     )
 
 
@@ -135,10 +137,7 @@ async def approve_writeback(
         select(ValidationReport).where(ValidationReport.request_id == request_id)
     )
     if report is not None and report.blocking:
-        raise HTTPException(
-            status_code=409,
-            detail="QA found critical issues. Fix them or skip writeback.",
-        )
+        raise AppError(409, "qa_blocking", "QA found critical issues. Fix them or skip writeback.")
     await _claim(db, request_id, "awaiting_writeback_approval", writeback_mode="approved")
     background_tasks.add_task(_run_and_log_errors, resume_writeback_phase, request_id)
     return {"status": "resuming"}
@@ -167,7 +166,7 @@ async def get_request(request_id: str, db: AsyncSession = Depends(get_db)) -> Re
     )
     request = result.scalar_one_or_none()
     if request is None:
-        raise HTTPException(status_code=404, detail="Request not found")
+        raise AppError(404, "run_not_found", "That run doesn’t exist.")
     return request
 
 
@@ -175,7 +174,7 @@ async def get_request(request_id: str, db: AsyncSession = Depends(get_db)) -> Re
 async def get_artifacts(request_id: str, db: AsyncSession = Depends(get_db)) -> ArtifactBundleOut:
     request = await db.get(Request, request_id)
     if request is None:
-        raise HTTPException(status_code=404, detail="Request not found")
+        raise AppError(404, "run_not_found", "That run doesn’t exist.")
 
     result = await db.execute(
         select(Artifact).where(Artifact.request_id == request_id).order_by(Artifact.created_at)
@@ -200,17 +199,14 @@ async def get_artifacts(request_id: str, db: AsyncSession = Depends(get_db)) -> 
 async def get_validation(request_id: str, db: AsyncSession = Depends(get_db)) -> ValidationReportOut:
     request = await db.get(Request, request_id)
     if request is None:
-        raise HTTPException(status_code=404, detail="Request not found")
+        raise AppError(404, "run_not_found", "That run doesn’t exist.")
 
     result = await db.execute(
         select(ValidationReport).where(ValidationReport.request_id == request_id)
     )
     report = result.scalar_one_or_none()
     if report is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Validation report not yet available — the QA stage hasn't completed.",
-        )
+        raise AppError(404, "report_not_ready", "QA hasn’t finished for this run yet.")
 
     return ValidationReportOut(
         request_id=request_id,
