@@ -14,10 +14,9 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import ws_hub
 from app.agents.base import Agent, AgentResult, RunContext
 from app.agents.data_engineer import DataEngineerAgent
 from app.agents.documentation_agent import DocumentationAgent
@@ -35,7 +34,7 @@ from app.llm.chain import ProviderChain, providers_from_settings
 from app.llm.mock_provider import MockLLMProvider
 from app.llm.provider import LLMProvider
 from app.models import Artifact, Run, RunStep, ValidationReport
-from app.schemas import AGENT_SEQUENCE, GeneratedFile, RunEvent, WSResult
+from app.schemas import AGENT_SEQUENCE, GeneratedFile
 
 logger = logging.getLogger("atlas.orchestrator")
 
@@ -121,9 +120,14 @@ def _make_context(run_id: str, prompt: str) -> RunContext:
     ctx: RunContext
 
     async def emit_log(text: str) -> None:
-        logger.info(
-            "agent_log run_id=%s agent=%s message=%s", run_id, ctx.current_agent, text
-        )
+        """Appends a line to the current step's log; the row change is what the browser sees."""
+        logger.info("agent_log run_id=%s agent=%s message=%s", run_id, ctx.current_agent, text)
+        async with session_scope() as db:
+            await db.execute(
+                update(RunStep)
+                .where(RunStep.run_id == run_id, RunStep.agent == ctx.current_agent)
+                .values(logs=RunStep.logs.op("||")(func.jsonb_build_array(text)))
+            )
 
     ctx = RunContext(
         run_id=run_id,
@@ -167,26 +171,18 @@ async def _run_phase_agents(
         ctx.current_agent = agent.name
 
         await _persist_stage_start(run_id, sequence, agent.name)
-        await ws_hub.broadcast(run_id, RunEvent(agent=agent.name, status="started"))
 
         try:
             result: AgentResult = await agent.run(ctx)
         except Exception as exc:  # noqa: BLE001 — any agent failure aborts the run
             logger.exception("agent %s failed for run %s", agent.name, run_id)
             await _persist_stage_failure(run_id, sequence, agent.name, str(exc))
-            await ws_hub.broadcast(
-                run_id, RunEvent(agent=agent.name, status="failed", error=str(exc)),
-            )
             return False
 
         ctx.results[agent.name] = result.data
         await _persist_stage_success(
             run_id, sequence, agent.name, result,
             status=end_status if is_last else None,
-        )
-        await ws_hub.broadcast(
-            run_id,
-            RunEvent(agent=agent.name, status="done", result=WSResult(summary=result.summary)),
         )
     return True
 
@@ -197,9 +193,7 @@ async def run_context_phase(run_id: str) -> None:
     if run is None:
         return
     ctx = await _context(run_id, run.prompt)
-    if await _run_phase_agents(run_id, ctx, CONTEXT_PHASE, end_status="awaiting_context_approval"):
-        await ws_hub.broadcast(run_id, RunEvent(agent="metadata_analyst", status="awaiting_approval"))
-    else:
+    if not await _run_phase_agents(run_id, ctx, CONTEXT_PHASE, end_status="awaiting_context_approval"):
         await _set_status(run_id, "failed")
 
 
@@ -211,9 +205,7 @@ async def resume_generation_phase(run_id: str) -> None:
     ctx = await _context(run_id, run.prompt)
     if run.context_mode == "fresh" and "metadata_analyst" in ctx.results:
         ctx.results["metadata_analyst"] = {**ctx.results["metadata_analyst"], "matched_datasets": []}
-    if await _run_phase_agents(run_id, ctx, GENERATION_PHASE, end_status="awaiting_writeback_approval"):
-        await ws_hub.broadcast(run_id, RunEvent(agent="writeback", status="awaiting_approval"))
-    else:
+    if not await _run_phase_agents(run_id, ctx, GENERATION_PHASE, end_status="awaiting_writeback_approval"):
         await _set_status(run_id, "failed")
 
 
@@ -223,9 +215,6 @@ async def resume_writeback_phase(run_id: str) -> None:
     if run is None:
         return
     if run.writeback_mode != "approved":
-        await ws_hub.broadcast(
-            run_id, RunEvent(agent="writeback", status="done", result=WSResult(summary="writeback skipped by user"))
-        )
         await _set_status(run_id, "complete")
         return
     ctx = await _context(run_id, run.prompt)
@@ -262,6 +251,7 @@ async def _persist_stage_start(run_id: str, sequence: int, agent: str) -> None:
         step = await _get_or_create_step(db, run_id, sequence, agent)
         step.status = "started"
         step.started_at = datetime.now(UTC)
+        step.logs = []  # a retried step starts a fresh log
 
 
 async def _persist_stage_success(

@@ -25,3 +25,9 @@ The free tier allows about 200 concurrent Realtime connections. Each viewer of a
 
 ## Revisit when
 Events are needed that don't map to a row change, such as token-by-token streaming. That needs SSE from the worker.
+
+## As built (#27)
+- The browser treats a Realtime change as a signal to refetch `GET /api/runs/{id}`. It doesn't apply row payloads itself, so the API stays the only shape the UI reads. A burst of changes is coalesced into one fetch after 150 ms.
+- Agent log lines are stored in `run_steps.logs`. Each line the worker appends is a row change, which keeps the execution log live.
+- Without Supabase configured (docker compose, `AUTH_MODE=off`), or if the channel errors, the hook polls every 1.5 s until the run finishes.
+- The publication change is skipped on plain Postgres, so CI and docker compose run the same migrations.

@@ -16,7 +16,6 @@ from app.database import dispose_engine
 from app.errors import install_error_handlers
 from app.orchestrator import init_datahub_mcp_gateway, shutdown_datahub_mcp_gateway
 from app.routers import runs as runs_router
-from app.routers import ws as ws_router
 from app.worker import run_forever
 
 logging.basicConfig(
@@ -71,7 +70,6 @@ app.add_middleware(
 )
 
 app.include_router(runs_router.router)
-app.include_router(ws_router.router)
 
 
 @app.get("/health")

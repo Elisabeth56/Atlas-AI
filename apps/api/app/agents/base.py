@@ -3,7 +3,7 @@ Agent framework base — every pipeline stage implements `Agent`. Business
 logic here is framework-independent: an `Agent` only knows about
 `RunContext` (its inputs + a logging callback), `LLMProvider`, and
 `DataHubGateway` — never about FastAPI, SQLAlchemy sessions in the ORM
-sense, or the WebSocket hub directly. That's what makes each agent
+sense, or how progress reaches the browser. That's what makes each agent
 independently unit-testable with fakes for all three.
 """
 from __future__ import annotations
@@ -60,7 +60,7 @@ class AgentResult:
 
 class Agent(ABC):
     """One pipeline stage. `name` must match a value in schemas.AgentId: it's the
-    WebSocket event's `agent` field and the steps row's `agent`."""
+    run_steps row's `agent`."""
 
     name: str
 

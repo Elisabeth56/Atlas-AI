@@ -10,7 +10,7 @@ from app.database import session_scope
 from app.datahub.mock_gateway import MockDataHubGateway
 from app.demo.seed_data import mock_llm_fixtures
 from app.llm.mock_provider import MockLLMProvider
-from app.models import Artifact, Run, ValidationReport
+from app.models import Artifact, Run, RunStep, ValidationReport
 from tests.conftest import DEMO_WORKSPACE
 
 
@@ -97,3 +97,11 @@ async def test_documentation_failure_keeps_data_engineer_files(db_ready, monkeyp
     assert request.status == "failed"
     assert counts.get("data_engineer", 0) > 0
     assert "documentation" not in counts
+
+
+async def test_steps_keep_their_live_log(db_ready):
+    run_id = await _run_to_generation(db_ready)
+
+    async with session_scope() as db:
+        logs = await db.scalar(select(RunStep.logs).where(RunStep.run_id == run_id, RunStep.agent == "metadata_analyst"))
+    assert logs[0] == "searching DataHub for candidate datasets"

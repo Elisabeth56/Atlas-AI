@@ -66,6 +66,7 @@ class RunStep(Base):
     input: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     output: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    logs: Mapped[list[str]] = mapped_column(JSONB, default=list)  # appended live by the worker
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
