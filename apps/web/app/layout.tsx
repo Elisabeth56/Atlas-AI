@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { THEME_BOOT } from "@/lib/theme";
 import "./globals.css";
 
 // self-hosted from @fontsource so builds never depend on reaching Google Fonts
@@ -27,7 +28,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`h-full ${hanken.variable} ${jetbrains.variable} ${caveat.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`h-full ${hanken.variable} ${jetbrains.variable} ${caveat.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      </head>
       <body className="flex min-h-full flex-col bg-surface-0 text-ink-2">{children}</body>
     </html>
   );

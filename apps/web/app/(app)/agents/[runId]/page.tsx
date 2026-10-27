@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { CheckCircle2, FileText, ShieldAlert, WifiOff } from "lucide-react";
-import { AppSubNav } from "@/components/layout/AppSubNav";
 import { RunStepper } from "@/components/agents/RunStepper";
 import { ExecutionLog } from "@/components/agents/ExecutionLog";
 import { ContextReviewPanel } from "@/components/agents/ContextReviewPanel";
@@ -20,8 +19,7 @@ export default function RunPage() {
 
   return (
     <>
-      <AppSubNav crumb={`agents/${params.runId}`} />
-      <main className="flex-1 bg-bg-base">
+      <div className="bg-bg-base">
         <div className="mx-auto max-w-[1280px] px-6 py-10 lg:px-10">
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-3">
@@ -87,7 +85,7 @@ export default function RunPage() {
             </div>
           )}
         </div>
-      </main>
+      </div>
     </>
   );
 }
