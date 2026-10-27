@@ -7,7 +7,7 @@ services:
     rootDir: apps/api
     dockerfilePath: ./Dockerfile
     region: frankfurt
-    plan: starter # always on; "free" works too but sleeps after 15 idle minutes (see ADR 007)
+    plan: free # sleeps after 15 idle minutes and wakes in about a minute; "starter" keeps it on (ADR 007)
     healthCheckPath: /health
     autoDeploy: false
     envVars:
