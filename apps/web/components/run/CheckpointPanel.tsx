@@ -7,20 +7,40 @@ import { useState, type ReactNode } from "react";
  * The card a checkpoint lives in. On desktop it sits in the run view; below 768px it's a bottom sheet
  * over the run, with a handle that folds it down to its title so the strip and log stay reachable.
  */
-export function CheckpointPanel({ title, frame, children }: { title: string; frame: string; children: ReactNode }) {
+export function CheckpointPanel({
+  title,
+  frame,
+  hand = false,
+  startFolded = false,
+  children,
+}: {
+  title: string;
+  frame: string;
+  /** a checkpoint written in grease pencil ("write back?") rather than set in type */
+  hand?: boolean;
+  /** phone only: start as just the title, so what's behind the sheet can be read first */
+  startFolded?: boolean;
+  children: ReactNode;
+}) {
   const reduced = useReducedMotion();
-  const [folded, setFolded] = useState(false);
+  const [folded, setFolded] = useState(startFolded);
 
   const head = (
     <div className="flex flex-wrap items-baseline justify-between gap-3">
-      <h2 className="text-[22px] leading-[1.15] font-semibold tracking-[-0.025em] text-ink md:text-[26px]">{title}</h2>
-      <span className="font-mono text-[12px] text-amber">frame {frame} · waiting</span>
+      {hand ? (
+        <h2 className="font-hand text-[30px] leading-none text-amber">{title}</h2>
+      ) : (
+        <h2 className="text-[22px] leading-[1.15] font-semibold tracking-[-0.025em] text-ink md:text-[26px]">{title}</h2>
+      )}
+      <span className={`font-mono text-[12px] ${hand ? "text-ink-3" : "text-amber"}`}>frame {frame}{hand ? "" : " · waiting"}</span>
     </div>
   );
 
   return (
     <>
-      <section className="hidden rounded-lg bg-surface-1 p-7 hairline md:block">
+      <section
+        className={`hidden rounded-lg bg-surface-1 md:block ${hand ? "p-[26px] shadow-[inset_0_0_0_1px_rgb(217_161_91/0.25)]" : "p-7 hairline"}`}
+      >
         {head}
         {children}
       </section>
