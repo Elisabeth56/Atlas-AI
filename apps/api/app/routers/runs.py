@@ -11,6 +11,7 @@ Every route is scoped to the caller's workspace; a run in another workspace is a
   POST /api/runs/{id}/writeback/approve   checkpoint 2: write docs and lineage to DataHub
   POST /api/runs/{id}/writeback/skip      checkpoint 2: finish without writing back
   POST /api/runs/{id}/steps/{agent}/retry continue a failed run from the step it stopped at
+  POST /api/runs/{id}/fixes/{fix_id}/apply apply a QA fix and re-check (checkpoint 2)
 """
 from __future__ import annotations
 
@@ -22,17 +23,20 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app import orchestrator
 from app.auth import Caller, current_caller
 from app.config import get_settings
 from app.database import get_db
 from app.errors import AppError
 from app.models import Artifact, LlmCall, Run, RunStep, ValidationReport
 from app.orchestrator import PHASE_OF_AGENT
+from app.qa.fixes import StaleFix
 from app.schemas import (
     AgentId,
     ArtifactBundleOut,
     CreateRunIn,
     CreateRunOut,
+    FixOut,
     RunListItemOut,
     RunOut,
     StepUsageOut,
@@ -109,6 +113,30 @@ async def get_validation(
     run_id: str, caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db)
 ) -> ValidationReportOut:
     await _owned_run(db, run_id, caller)
+    return await _report(db, run_id)
+
+
+@router.post("/{run_id}/fixes/{fix_id}/apply", response_model=ValidationReportOut)
+async def apply_fix(
+    run_id: str, fix_id: str,
+    caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
+) -> ValidationReportOut:
+    """Applies a suggested QA fix and returns the re-checked report. Applying it again changes nothing."""
+    await _owned_run(db, run_id, caller)
+    await db.rollback()  # end this read before the orchestrator locks the run in its own transaction
+    try:
+        await orchestrator.apply_fix(run_id, fix_id)
+    except orchestrator.NotAtWritebackCheckpoint as e:
+        raise AppError(409, "checkpoint_conflict", "Fixes can only be applied at the writeback checkpoint.",
+                       {"status": str(e)}) from e
+    except orchestrator.FixNotFound as e:
+        raise AppError(404, "fix_not_found", "That fix isn’t in this run’s QA report.") from e
+    except StaleFix as e:
+        raise AppError(409, "fix_stale", "The file changed since QA suggested this fix. Re-run QA first.") from e
+    return await _report(db, run_id)
+
+
+async def _report(db: AsyncSession, run_id: str) -> ValidationReportOut:
     report = await db.scalar(select(ValidationReport).where(ValidationReport.run_id == run_id))
     if report is None:
         raise AppError(404, "report_not_ready", "QA hasn’t finished for this run yet.")
@@ -117,6 +145,7 @@ async def get_validation(
         checks=[ValidationCheckOut.model_validate(c) for c in report.checks],
         passed=report.passed,
         blocking=report.blocking,
+        fixes=[FixOut.model_validate(f) for f in report.fixes],
     )
 
 

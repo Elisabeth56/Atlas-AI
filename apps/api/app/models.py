@@ -101,6 +101,7 @@ class ValidationReport(Base):
     passed: Mapped[bool] = mapped_column(Boolean)
     # true when any check failed with severity "critical"; blocks writeback approval
     blocking: Mapped[bool] = mapped_column(Boolean, default=False)
+    fixes: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)  # see app/qa/fixes.py
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     run: Mapped[Run] = relationship(back_populates="validation_report")

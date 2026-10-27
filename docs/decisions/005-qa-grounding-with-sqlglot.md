@@ -31,3 +31,9 @@ Pure CPU work, in milliseconds per file. It doesn't limit throughput.
 
 ## Revisit when
 Users generate macro-heavy dbt projects that sqlglot can't parse after Jinja is stripped.
+
+## Fixes (#31)
+- For each PII exposure, QA suggests a line patch when the line holds just that column: `card_last4,` becomes `md5(card_last4) as card_last4_hash,`. Anything more complex gets no suggestion and still blocks, so QA never guesses at SQL it can't read with confidence.
+- The fix id is a hash of file and column, so the same finding always has the same id.
+- `POST /runs/{id}/fixes/{fix_id}/apply` works only at the writeback checkpoint. In one transaction holding the run's row lock, it patches the artifact and the data engineer's stored output, then re-runs QA with a provider that refuses to be called. Applying a fix twice is a no-op. If the line changed underneath, the response is `fix_stale`.
+- Documentation isn't regenerated after a fix. The docs keep the old column name until a later run.

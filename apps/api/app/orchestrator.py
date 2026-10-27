@@ -15,6 +15,7 @@ import logging
 from contextvars import ContextVar
 from datetime import UTC, datetime
 
+from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,8 +34,10 @@ from app.datahub.mock_gateway import MockDataHubGateway
 from app.demo.seed_data import mock_llm_fixtures
 from app.llm.chain import CallRecord, ProviderChain, providers_from_settings
 from app.llm.mock_provider import MockLLMProvider
-from app.llm.provider import LLMProvider
+from app.llm.provider import LLMError, LLMProvider
 from app.models import Artifact, LlmCall, Run, RunStep, ValidationReport
+from app.qa.fixes import Fix
+from app.qa.fixes import apply as apply_patch
 from app.schemas import AGENT_SEQUENCE, GeneratedFile
 
 logger = logging.getLogger("atlas.orchestrator")
@@ -365,7 +368,9 @@ async def _replace_artifacts(
         )
 
 
-async def _replace_validation_report(db: AsyncSession, run_id: str, qa_output: dict) -> None:
+async def _replace_validation_report(
+    db: AsyncSession, run_id: str, qa_output: dict, applied: list[dict] | None = None
+) -> None:
     checks = qa_output.get("checks", [])
     blocking = any(not c["passed"] and c["severity"] == "critical" for c in checks)
     await db.execute(delete(ValidationReport).where(ValidationReport.run_id == run_id))
@@ -375,8 +380,69 @@ async def _replace_validation_report(db: AsyncSession, run_id: str, qa_output: d
             checks=checks,
             passed=qa_output.get("passed", False),
             blocking=blocking,
+            fixes=[*(applied or []), *qa_output.get("fixes", [])],
         )
     )
+
+
+class FixNotFound(LookupError):
+    pass
+
+
+class NotAtWritebackCheckpoint(Exception):
+    pass
+
+
+class _NoModel(LLMProvider):
+    async def complete(self, *, prompt_id: str, user_prompt: str, schema: type) -> BaseModel:
+        raise LLMError("the QA re-check runs without a model")
+
+
+async def apply_fix(run_id: str, fix_id: str) -> bool:
+    """Patches the file a QA fix targets and re-runs QA on it. False if the fix was already applied.
+
+    Everything happens in one transaction holding the run's row lock, so two clicks apply it once.
+    Only QA re-runs: it's deterministic, so no model is called.
+    """
+    async with session_scope() as db:
+        run = await db.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if run is None or run.status != "awaiting_writeback_approval":
+            raise NotAtWritebackCheckpoint(run.status if run else "missing")
+        report = await db.scalar(select(ValidationReport).where(ValidationReport.run_id == run_id))
+        found = next((f for f in (report.fixes if report else []) if f["id"] == fix_id), None)
+        if found is None:
+            raise FixNotFound(fix_id)
+        if found["applied"]:
+            return False
+        fix = Fix(**found)
+
+        artifact = await db.scalar(select(Artifact).where(
+            Artifact.run_id == run_id, Artifact.source_agent == "data_engineer", Artifact.filename == fix.file))
+        artifact.content = apply_patch(artifact.content, fix)  # raises StaleFix
+        steps = {
+            step.agent: step for step in await db.scalars(
+                select(RunStep).where(RunStep.run_id == run_id, RunStep.status == "success"))
+        }
+        engineer = steps["data_engineer"]
+        engineer.output = {**engineer.output, "files": [
+            {**f, "content": artifact.content} if f["filename"] == fix.file else f
+            for f in engineer.output["files"]
+        ]}
+
+        ctx = RunContext(run_id=run_id, prompt=run.prompt, llm=_NoModel(), datahub=_build_datahub_gateway(),
+                         emit_log=_quiet)
+        ctx.results = {agent: step.output or {} for agent, step in steps.items()}
+        result = await QAAgent().run(ctx)
+
+        steps["qa"].output = result.data
+        steps["qa"].logs = [*steps["qa"].logs, f"masked {fix.column} in {fix.file}; re-checked: {result.summary}"]
+        applied = [f for f in report.fixes if f["applied"]] + [{**found, "applied": True}]
+        await _replace_validation_report(db, run_id, result.data, applied=applied)
+        return True
+
+
+async def _quiet(_line: str) -> None:
+    pass
 
 
 async def _set_status(run_id: str, status: str) -> None:
