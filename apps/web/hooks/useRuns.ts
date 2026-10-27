@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState } from "react";
-import { HAS_BACKEND, listRuns } from "@/lib/api";
+import { listRuns } from "@/lib/api";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { RunListItem } from "@/lib/types";
 
@@ -12,11 +12,10 @@ const POLL_MS = 5000;
  * this workspace) and we refetch; without Supabase it polls. Same pattern as useRunStream (ADR 003).
  */
 export function useRuns() {
-  const [runs, setRuns] = useState<RunListItem[] | null>(HAS_BACKEND ? null : []);
+  const [runs, setRuns] = useState<RunListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!HAS_BACKEND) return;
     let cancelled = false;
     let pending: ReturnType<typeof setTimeout> | null = null;
 

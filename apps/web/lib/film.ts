@@ -1,4 +1,3 @@
-import type { StageStatus } from "@/hooks/useRunStream";
 import type { Run, RunStep } from "@/lib/types";
 
 /** The eight frames of a run: six agents plus the two places a person decides. */
@@ -86,27 +85,5 @@ export function framesFromRun(run: Run): Frame[] {
     }
     const { meta, critical } = agentMeta(slot.agent, step);
     return { number, name: slot.name, checkpoint: false, state: critical ? "critical" : "developed", meta };
-  });
-}
-
-/** Frames for the browser-only simulation (no backend), which only knows stage statuses. Goes with #40. */
-export function framesFromStatuses(statuses: StageStatus[], pausedAt: "context" | "writeback" | null): Frame[] {
-  const toState = (s: StageStatus): FrameState =>
-    s === "done" ? "developed" : s === "running" ? "developing" : s === "failed" ? "failed" : "undeveloped";
-  const agentIndex = [0, 1, -1, 2, 3, 4, -1, 5];
-  return AGENT_FRAMES.map((slot, i) => {
-    const number = `${String(i + 1).padStart(2, "0")}A`;
-    if (slot === null) {
-      const first = i === 2;
-      const waiting = pausedAt === (first ? "context" : "writeback");
-      const passed = statuses[first ? 2 : 5] !== "pending";
-      return {
-        number, name: "you", checkpoint: true,
-        state: waiting ? "waiting" : passed ? "decided" : "undeveloped",
-        meta: first ? (passed ? "kept all 3" : "which sources?") : passed ? "approved" : "write back?",
-      };
-    }
-    const state = toState(statuses[agentIndex[i]]);
-    return { number, name: slot.name, checkpoint: false, state, meta: state === "developed" ? "done" : state === "developing" ? "developing…" : "not developed" };
   });
 }

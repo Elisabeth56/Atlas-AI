@@ -1,4 +1,4 @@
-// Browser-side Supabase client. Null when the app runs without auth (local simulation).
+// Browser-side Supabase client. Null when the app runs without sign-in (local development with AUTH_MODE=off).
 import { createBrowserClient } from "@supabase/ssr";
 import type { SupabaseClient } from "@supabase/supabase-js";
 

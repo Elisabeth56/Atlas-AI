@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     def CORS_ORIGINS(self) -> list[str]:  # noqa: N802 — matches env var casing
         return [o.strip() for o in self.CORS_ORIGINS_RAW.split(",") if o.strip()]
 
+    # Vercel preview URLs change per branch, so they're matched by pattern, e.g.
+    # https://atlas-ai-[a-z0-9-]+-elisabeth-nnamanis-projects\.vercel\.app
+    CORS_ORIGIN_REGEX: str | None = None
+
     # --- Derived / computed flags ---
     @property
     def llm_demo_mode(self) -> bool:
