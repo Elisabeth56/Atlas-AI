@@ -3,28 +3,14 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from app.database import session_scope
 from app.models import Run, ValidationReport
-from app.routers import runs as runs_router
 from tests.conftest import DEMO_WORKSPACE
 
 
-@pytest.fixture
-def scheduled(monkeypatch):
-    """Replaces the phase runners with recorders so tests only exercise the endpoints."""
-    calls: list[tuple[str, str]] = []
-
-    async def fake_generation(run_id: str) -> None:
-        calls.append(("generation", run_id))
-
-    async def fake_writeback(run_id: str) -> None:
-        calls.append(("writeback", run_id))
-
-    monkeypatch.setattr(runs_router, "resume_generation_phase", fake_generation)
-    monkeypatch.setattr(runs_router, "resume_writeback_phase", fake_writeback)
-    return calls
+async def _phase(run_id: str) -> str | None:
+    async with session_scope() as db:
+        return (await db.get(Run, run_id)).phase
 
 
 async def _seed(status: str) -> str:
@@ -35,7 +21,7 @@ async def _seed(status: str) -> str:
         return request.id
 
 
-async def test_concurrent_accepts_run_generation_once(client, scheduled):
+async def test_concurrent_accepts_queue_generation_once(client):
     run_id = await _seed("awaiting_context_approval")
 
     responses = await asyncio.gather(
@@ -46,10 +32,10 @@ async def test_concurrent_accepts_run_generation_once(client, scheduled):
     assert sorted(r.status_code for r in responses) == [202, 409]
     loser = next(r for r in responses if r.status_code == 409)
     assert loser.json()["error"]["code"] == "checkpoint_conflict"
-    assert scheduled == [("generation", run_id)]
+    assert await _phase(run_id) == "generation"
 
 
-async def test_accept_records_mode_and_claims_run(client, scheduled):
+async def test_accept_records_mode_and_queues_generation(client):
     run_id = await _seed("awaiting_context_approval")
 
     response = await client.post(f"/api/runs/{run_id}/context/start-fresh")
@@ -57,19 +43,19 @@ async def test_accept_records_mode_and_claims_run(client, scheduled):
     assert response.status_code == 202
     async with session_scope() as db:
         request = await db.get(Run, run_id)
-        assert (request.status, request.context_mode) == ("running", "fresh")
+        assert (request.status, request.context_mode, request.phase) == ("running", "fresh", "generation")
 
 
-async def test_skip_writeback_from_wrong_state_is_rejected(client, scheduled):
+async def test_skip_writeback_from_wrong_state_is_rejected(client):
     run_id = await _seed("awaiting_context_approval")
 
     response = await client.post(f"/api/runs/{run_id}/writeback/skip")
 
     assert response.status_code == 409
-    assert scheduled == []
+    assert await _phase(run_id) is None
 
 
-async def test_unknown_run_is_404(client, scheduled):
+async def test_unknown_run_is_404(client):
     response = await client.post(
         "/api/runs/00000000-0000-0000-0000-000000000000/context/accept"
     )
@@ -97,7 +83,7 @@ async def _seed_report(run_id: str, *, blocking: bool) -> None:
         )
 
 
-async def test_critical_qa_finding_blocks_writeback_approval(client, scheduled):
+async def test_critical_qa_finding_blocks_writeback_approval(client):
     run_id = await _seed("awaiting_writeback_approval")
     await _seed_report(run_id, blocking=True)
 
@@ -105,20 +91,20 @@ async def test_critical_qa_finding_blocks_writeback_approval(client, scheduled):
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "qa_blocking"
-    assert scheduled == []
+    assert await _phase(run_id) is None
 
 
-async def test_critical_qa_finding_still_allows_skip(client, scheduled):
+async def test_critical_qa_finding_still_allows_skip(client):
     run_id = await _seed("awaiting_writeback_approval")
     await _seed_report(run_id, blocking=True)
 
     response = await client.post(f"/api/runs/{run_id}/writeback/skip")
 
     assert response.status_code == 202
-    assert scheduled == [("writeback", run_id)]
+    assert await _phase(run_id) == "writeback"
 
 
-async def test_clean_qa_allows_approval_and_exposes_flag(client, scheduled):
+async def test_clean_qa_allows_approval_and_exposes_flag(client):
     run_id = await _seed("awaiting_writeback_approval")
     await _seed_report(run_id, blocking=False)
 

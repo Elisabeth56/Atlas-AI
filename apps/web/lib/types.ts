@@ -11,18 +11,6 @@ export type AgentId =
 
 export type AgentRunStatus = "pending" | "started" | "success" | "failed";
 
-// "awaiting_approval" is a genuine pause signal, not a stage outcome — it
-// fires once for the checkpoint agent ("metadata_analyst" for the context
-// checkpoint, "writeback" for the writeback checkpoint) and nothing else
-// happens until the corresponding accept/start-fresh or approve/skip
-// endpoint is called.
-export interface AgentRunEvent {
-  agent: AgentId;
-  status: "started" | "done" | "failed" | "awaiting_approval";
-  result?: { summary: string };
-  error?: string;
-}
-
 export interface RunStep {
   id: string;
   run_id: string;
@@ -33,6 +21,16 @@ export interface RunStep {
   input: Record<string, unknown> | null;
   output: Record<string, unknown> | null;
   error: string | null;
+  logs: string[]; // appended live by the worker
+  usage: StepUsage | null; // null when the step made no LLM calls
+}
+
+export interface StepUsage {
+  calls: number;
+  tokens_in: number;
+  tokens_out: number;
+  latency_ms: number;
+  failed_calls: number;
 }
 
 export type RequestStatus =
@@ -94,4 +92,16 @@ export interface ValidationReport {
   checks: ValidationCheck[];
   passed: boolean;
   blocking: boolean;
+  fixes: QaFix[];
+}
+
+// A patch QA can apply itself: replace `before` with `after` on `line` of `file`.
+export interface QaFix {
+  id: string;
+  file: string;
+  line: number;
+  column: string;
+  before: string;
+  after: string;
+  applied: boolean;
 }

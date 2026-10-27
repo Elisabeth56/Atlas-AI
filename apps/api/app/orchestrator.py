@@ -12,12 +12,13 @@ framework: the phases are fixed and never loop.
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from pydantic import BaseModel
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import ws_hub
 from app.agents.base import Agent, AgentResult, RunContext
 from app.agents.data_engineer import DataEngineerAgent
 from app.agents.documentation_agent import DocumentationAgent
@@ -31,11 +32,13 @@ from app.datahub.gateway import DataHubGateway
 from app.datahub.mcp_gateway import DataHubMCPGateway
 from app.datahub.mock_gateway import MockDataHubGateway
 from app.demo.seed_data import mock_llm_fixtures
-from app.llm.chain import ProviderChain, providers_from_settings
+from app.llm.chain import CallRecord, ProviderChain, providers_from_settings
 from app.llm.mock_provider import MockLLMProvider
-from app.llm.provider import LLMProvider
-from app.models import Artifact, Run, RunStep, ValidationReport
-from app.schemas import AGENT_SEQUENCE, GeneratedFile, RunEvent, WSResult
+from app.llm.provider import LLMError, LLMProvider
+from app.models import Artifact, LlmCall, Run, RunStep, ValidationReport
+from app.qa.fixes import Fix
+from app.qa.fixes import apply as apply_patch
+from app.schemas import AGENT_SEQUENCE, GeneratedFile
 
 logger = logging.getLogger("atlas.orchestrator")
 
@@ -63,7 +66,39 @@ def _build_llm_provider() -> LLMProvider:
         return MockLLMProvider(fixtures=mock_llm_fixtures())
     providers = providers_from_settings(settings)
     logger.info("orchestrator: using providers %s", [p.name for p in providers])
-    return ProviderChain(providers, timeout_seconds=settings.LLM_TIMEOUT_SECONDS)
+    return ProviderChain(providers, timeout_seconds=settings.LLM_TIMEOUT_SECONDS, on_call=record_llm_call)
+
+
+# the step an LLM call belongs to; set around each agent.run so the chain doesn't need to know
+current_step: ContextVar[tuple[str, str] | None] = ContextVar("current_step", default=None)
+
+
+async def record_llm_call(call: CallRecord) -> None:
+    """Stores the call. Failures and fallbacks also go in the step's live log, so they show in the run view."""
+    scope = current_step.get()
+    if scope is None:
+        return
+    run_id, agent = scope
+    line = None
+    if call.outcome != "ok":
+        line = f"{call.provider} {call.outcome.replace('_', ' ')}"
+    elif call.fallback:
+        line = f"answered by {call.provider} ({call.model})"
+    async with session_scope() as db:
+        db.add(LlmCall(
+            run_id=run_id, agent=agent, provider=call.provider, model=call.model, prompt_id=call.prompt_id,
+            tokens_in=call.tokens_in, tokens_out=call.tokens_out, latency_ms=call.latency_ms, outcome=call.outcome,
+        ))
+        if line:
+            await _append_log(db, run_id, agent, line)
+
+
+async def _append_log(db: AsyncSession, run_id: str, agent: str, line: str) -> None:
+    await db.execute(
+        update(RunStep)
+        .where(RunStep.run_id == run_id, RunStep.agent == agent)
+        .values(logs=RunStep.logs.op("||")(func.jsonb_build_array(line)))
+    )
 
 
 # One MCP connection (a subprocess plus session) shared by every phase of every run.
@@ -121,9 +156,10 @@ def _make_context(run_id: str, prompt: str) -> RunContext:
     ctx: RunContext
 
     async def emit_log(text: str) -> None:
-        logger.info(
-            "agent_log run_id=%s agent=%s message=%s", run_id, ctx.current_agent, text
-        )
+        """Appends a line to the current step's log; the row change is what the browser sees."""
+        logger.info("agent_log run_id=%s agent=%s message=%s", run_id, ctx.current_agent, text)
+        async with session_scope() as db:
+            await _append_log(db, run_id, ctx.current_agent, text)
 
     ctx = RunContext(
         run_id=run_id,
@@ -153,126 +189,99 @@ async def _run_phase_agents(
     *,
     end_status: str | None = None,
 ) -> bool:
-    """Runs one phase's agents in order. Returns False as soon as one fails.
+    """Runs one phase's agents in order, skipping any that already succeeded. False if one fails.
 
     `end_status` is committed in the same transaction as the last agent's output,
     so the run never shows a finished phase with half its results missing.
     """
     for index, (sequence, agent) in enumerate(phase):
+        is_last = index == len(phase) - 1
+        if agent.name in ctx.results:  # finished before a crash or restart: don't redo it
+            if is_last and end_status:
+                await _set_status(run_id, end_status)
+            continue
         ctx.current_agent = agent.name
 
         await _persist_stage_start(run_id, sequence, agent.name)
-        await ws_hub.broadcast(run_id, RunEvent(agent=agent.name, status="started"))
 
+        token = current_step.set((run_id, agent.name))
         try:
             result: AgentResult = await agent.run(ctx)
         except Exception as exc:  # noqa: BLE001 — any agent failure aborts the run
             logger.exception("agent %s failed for run %s", agent.name, run_id)
             await _persist_stage_failure(run_id, sequence, agent.name, str(exc))
-            await ws_hub.broadcast(
-                run_id, RunEvent(agent=agent.name, status="failed", error=str(exc)),
-            )
             return False
+        finally:
+            current_step.reset(token)
 
         ctx.results[agent.name] = result.data
-        is_last = index == len(phase) - 1
         await _persist_stage_success(
             run_id, sequence, agent.name, result,
             status=end_status if is_last else None,
         )
-        await ws_hub.broadcast(
-            run_id,
-            RunEvent(agent=agent.name, status="done", result=WSResult(summary=result.summary)),
-        )
     return True
 
 
-async def run_context_phase(run_id: str, prompt: str) -> None:
+async def run_context_phase(run_id: str) -> None:
     """Phase 1. Always pauses at the end, even with no matches, so starting fresh is a visible choice."""
-    async with session_scope() as db:
-        run = await db.get(Run, run_id)
-        if run is None:
-            logger.error("run_context_phase: run %s not found", run_id)
-            return
-        run.status = "running"
-
-    ctx = _make_context(run_id, prompt)
-    ok = await _run_phase_agents(run_id, ctx, CONTEXT_PHASE)
-    if not ok:
-        await _finalize_request(run_id, status="failed")
+    run = await _start(run_id, allowed={"pending", "running"})
+    if run is None:
         return
-
-    await _set_status(run_id, "awaiting_context_approval")
-    await ws_hub.broadcast(
-        run_id,
-        RunEvent(agent="metadata_analyst", status="awaiting_approval"),
-    )
+    ctx = await _context(run_id, run.prompt)
+    if not await _run_phase_agents(run_id, ctx, CONTEXT_PHASE, end_status="awaiting_context_approval"):
+        await _set_status(run_id, "failed")
 
 
 async def resume_generation_phase(run_id: str) -> None:
-    """Phase 2. Runs after the endpoint claimed the run; "fresh" mode drops the matched datasets."""
-    async with session_scope() as db:
-        run = await db.get(Run, run_id)
-        # the endpoint already claimed the run (status=running, context_mode set)
-        if run is None or run.status != "running":
-            logger.error(
-                "resume_generation_phase: run %s not claimed (status=%s)",
-                run_id, run.status if run else "missing",
-            )
-            return
-        context_mode = run.context_mode
-        prompt = run.prompt
-
-    ctx = _make_context(run_id, prompt)
-    ctx.results = await _load_prior_results(run_id)
-
-    if context_mode == "fresh" and "metadata_analyst" in ctx.results:
-        # strip the matches for real, so "start fresh" changes what the data engineer sees
-        ctx.results["metadata_analyst"] = {
-            **ctx.results["metadata_analyst"],
-            "matched_datasets": [],
-        }
-
-    ok = await _run_phase_agents(
-        run_id, ctx, GENERATION_PHASE, end_status="awaiting_writeback_approval"
-    )
-    if not ok:
-        await _finalize_request(run_id, status="failed")
+    """Phase 2, after checkpoint 1. "Start fresh" drops the matched datasets before the data engineer runs."""
+    run = await _start(run_id, allowed={"running"})
+    if run is None:
         return
-
-    await ws_hub.broadcast(
-        run_id,
-        RunEvent(agent="writeback", status="awaiting_approval"),
-    )
+    ctx = await _context(run_id, run.prompt)
+    if run.context_mode == "fresh" and "metadata_analyst" in ctx.results:
+        ctx.results["metadata_analyst"] = {**ctx.results["metadata_analyst"], "matched_datasets": []}
+    if not await _run_phase_agents(run_id, ctx, GENERATION_PHASE, end_status="awaiting_writeback_approval"):
+        await _set_status(run_id, "failed")
 
 
 async def resume_writeback_phase(run_id: str) -> None:
-    """Phase 3. Skipping still completes the run; only DataHub is affected by the choice."""
+    """Phase 3, after checkpoint 2. Skipping still completes the run; only DataHub depends on the choice."""
+    run = await _start(run_id, allowed={"running"})
+    if run is None:
+        return
+    if run.writeback_mode != "approved":
+        await _set_status(run_id, "complete")
+        return
+    ctx = await _context(run_id, run.prompt)
+    ok = await _run_phase_agents(run_id, ctx, WRITEBACK_PHASE, end_status="complete")
+    if not ok:
+        await _set_status(run_id, "failed")
+
+
+PHASES = {"context": run_context_phase, "generation": resume_generation_phase, "writeback": resume_writeback_phase}
+
+PHASE_OF_AGENT = {
+    **{agent.name: "context" for _, agent in CONTEXT_PHASE},
+    **{agent.name: "generation" for _, agent in GENERATION_PHASE},
+    **{agent.name: "writeback" for _, agent in WRITEBACK_PHASE},
+}
+
+
+async def _start(run_id: str, *, allowed: set[str]) -> Run | None:
+    """Marks the run running. None means there's nothing to do (already moved on, or gone)."""
     async with session_scope() as db:
         run = await db.get(Run, run_id)
-        # the endpoint already claimed the run (status=running, writeback_mode set)
-        if run is None or run.status != "running":
-            logger.error(
-                "resume_writeback_phase: run %s not claimed (status=%s)",
-                run_id, run.status if run else "missing",
-            )
-            return
-        approved = run.writeback_mode == "approved"
-        prompt = run.prompt
+        if run is None or run.status not in allowed:
+            logger.info("run %s: nothing to do in status %s", run_id, run.status if run else "missing")
+            return None
+        run.status = "running"
+        return run
 
-    if not approved:
-        await ws_hub.broadcast(
-            run_id,
-            RunEvent(agent="writeback", status="done", result=WSResult(summary="writeback skipped by user")),
-        )
-        await _finalize_request(run_id, status="complete")
-        return
 
+async def _context(run_id: str, prompt: str) -> RunContext:
     ctx = _make_context(run_id, prompt)
     ctx.results = await _load_prior_results(run_id)
-
-    ok = await _run_phase_agents(run_id, ctx, WRITEBACK_PHASE)
-    await _finalize_request(run_id, status="complete" if ok else "failed")
+    return ctx
 
 
 # Each helper uses its own short transaction, so a crash never leaves one spanning stages.
@@ -283,6 +292,8 @@ async def _persist_stage_start(run_id: str, sequence: int, agent: str) -> None:
         step = await _get_or_create_step(db, run_id, sequence, agent)
         step.status = "started"
         step.started_at = datetime.now(UTC)
+        step.logs = []  # a retried step starts with a fresh log and no old error
+        step.error = None
 
 
 async def _persist_stage_success(
@@ -357,7 +368,9 @@ async def _replace_artifacts(
         )
 
 
-async def _replace_validation_report(db: AsyncSession, run_id: str, qa_output: dict) -> None:
+async def _replace_validation_report(
+    db: AsyncSession, run_id: str, qa_output: dict, applied: list[dict] | None = None
+) -> None:
     checks = qa_output.get("checks", [])
     blocking = any(not c["passed"] and c["severity"] == "critical" for c in checks)
     await db.execute(delete(ValidationReport).where(ValidationReport.run_id == run_id))
@@ -367,8 +380,69 @@ async def _replace_validation_report(db: AsyncSession, run_id: str, qa_output: d
             checks=checks,
             passed=qa_output.get("passed", False),
             blocking=blocking,
+            fixes=[*(applied or []), *qa_output.get("fixes", [])],
         )
     )
+
+
+class FixNotFound(LookupError):
+    pass
+
+
+class NotAtWritebackCheckpoint(Exception):
+    pass
+
+
+class _NoModel(LLMProvider):
+    async def complete(self, *, prompt_id: str, user_prompt: str, schema: type) -> BaseModel:
+        raise LLMError("the QA re-check runs without a model")
+
+
+async def apply_fix(run_id: str, fix_id: str) -> bool:
+    """Patches the file a QA fix targets and re-runs QA on it. False if the fix was already applied.
+
+    Everything happens in one transaction holding the run's row lock, so two clicks apply it once.
+    Only QA re-runs: it's deterministic, so no model is called.
+    """
+    async with session_scope() as db:
+        run = await db.scalar(select(Run).where(Run.id == run_id).with_for_update())
+        if run is None or run.status != "awaiting_writeback_approval":
+            raise NotAtWritebackCheckpoint(run.status if run else "missing")
+        report = await db.scalar(select(ValidationReport).where(ValidationReport.run_id == run_id))
+        found = next((f for f in (report.fixes if report else []) if f["id"] == fix_id), None)
+        if found is None:
+            raise FixNotFound(fix_id)
+        if found["applied"]:
+            return False
+        fix = Fix(**found)
+
+        artifact = await db.scalar(select(Artifact).where(
+            Artifact.run_id == run_id, Artifact.source_agent == "data_engineer", Artifact.filename == fix.file))
+        artifact.content = apply_patch(artifact.content, fix)  # raises StaleFix
+        steps = {
+            step.agent: step for step in await db.scalars(
+                select(RunStep).where(RunStep.run_id == run_id, RunStep.status == "success"))
+        }
+        engineer = steps["data_engineer"]
+        engineer.output = {**engineer.output, "files": [
+            {**f, "content": artifact.content} if f["filename"] == fix.file else f
+            for f in engineer.output["files"]
+        ]}
+
+        ctx = RunContext(run_id=run_id, prompt=run.prompt, llm=_NoModel(), datahub=_build_datahub_gateway(),
+                         emit_log=_quiet)
+        ctx.results = {agent: step.output or {} for agent, step in steps.items()}
+        result = await QAAgent().run(ctx)
+
+        steps["qa"].output = result.data
+        steps["qa"].logs = [*steps["qa"].logs, f"masked {fix.column} in {fix.file}; re-checked: {result.summary}"]
+        applied = [f for f in report.fixes if f["applied"]] + [{**found, "applied": True}]
+        await _replace_validation_report(db, run_id, result.data, applied=applied)
+        return True
+
+
+async def _quiet(_line: str) -> None:
+    pass
 
 
 async def _set_status(run_id: str, status: str) -> None:
@@ -378,5 +452,3 @@ async def _set_status(run_id: str, status: str) -> None:
             run.status = status
 
 
-async def _finalize_request(run_id: str, *, status: str) -> None:
-    await _set_status(run_id, status)

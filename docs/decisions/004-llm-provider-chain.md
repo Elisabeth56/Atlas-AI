@@ -28,3 +28,9 @@ Every free tier's daily limits run out. Fix: a paid tier on the primary provider
 
 ## Revisit when
 Fallback calls exceed 20% of all calls, or evals show a provider scores lower on grounding.
+
+## As built (#29)
+- `ProviderChain` reports every HTTP call through an `on_call` callback: provider, model, prompt, tokens, latency, outcome, and whether an earlier provider already failed the call. The chain itself never touches the database.
+- The orchestrator stores each call in `llm_calls`, tagged with the run and agent from a context variable set around `agent.run`.
+- Failed calls and answers that came from a fallback provider are appended to the step's live log, e.g. `groq rate limited` → `answered by cerebras (gpt-oss-120b)`.
+- `GET /api/runs/{id}` returns per-step `usage` (calls, tokens in/out, latency, failed calls). The eval harness (#42) reads the same table.

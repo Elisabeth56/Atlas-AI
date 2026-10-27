@@ -12,6 +12,7 @@ import asyncio
 import yaml
 
 from app.agents.base import Agent, AgentResult, RunContext
+from app.qa.fixes import suggest_mask
 from app.qa.grounding import ModelCheck, Table, check_models, parse_errors, table_key
 from app.schemas import GeneratedFile, MatchedDataset, ValidationCheckOut
 
@@ -31,6 +32,10 @@ class QAAgent(Agent):
             catalog, empty = await _load_catalog(ctx, datasets)
             await ctx.emit_log("resolving every column against the catalog")
             results = check_models(models, catalog)
+            fixes = [
+                fix for r in results for e in r.exposed_pii
+                if (fix := suggest_mask(r.filename, models[r.filename], e))
+            ]
             checks = [
                 _columns_check(results),
                 _parse_check(results),
@@ -40,6 +45,7 @@ class QAAgent(Agent):
             ]
         else:
             await ctx.emit_log("no catalog datasets: checking syntax and tests only")
+            fixes = []
             checks = [
                 _check("Columns resolve to DataHub", False, "warning",
                        "Ungrounded: this run started fresh, so no column could be checked against DataHub."),
@@ -54,7 +60,12 @@ class QAAgent(Agent):
         await ctx.emit_log(summary)
         return AgentResult(
             summary=summary,
-            data={"checks": [c.model_dump() for c in checks], "passed": all(c.passed for c in checks), "summary": summary},
+            data={
+                "checks": [c.model_dump() for c in checks],
+                "passed": all(c.passed for c in checks),
+                "summary": summary,
+                "fixes": [f.as_dict() for f in fixes],
+            },
         )
 
 

@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, SmallInteger, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +36,11 @@ class Run(Base):
     context_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     writeback_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
     trace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), default=_uuid)
+    # work owed to the worker (context | generation | writeback); null when nothing is queued
+    phase: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    locked_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(SmallInteger, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
@@ -61,6 +66,7 @@ class RunStep(Base):
     input: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     output: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    logs: Mapped[list[str]] = mapped_column(JSONB, default=list)  # appended live by the worker
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -95,9 +101,28 @@ class ValidationReport(Base):
     passed: Mapped[bool] = mapped_column(Boolean)
     # true when any check failed with severity "critical"; blocks writeback approval
     blocking: Mapped[bool] = mapped_column(Boolean, default=False)
+    fixes: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)  # see app/qa/fixes.py
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     run: Mapped[Run] = relationship(back_populates="validation_report")
+
+
+class LlmCall(Base):
+    """One HTTP call to an LLM provider, failed ones included."""
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("runs.id", ondelete="CASCADE"))
+    agent: Mapped[str] = mapped_column(String(32))
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_id: Mapped[str] = mapped_column(Text)
+    tokens_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    outcome: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class Workspace(Base):
@@ -106,3 +131,21 @@ class Workspace(Base):
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+
+    workspace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("workspaces.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), default="owner")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DatahubConnection(Base):
+    __tablename__ = "datahub_connections"
+
+    workspace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("workspaces.id"), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(16), default="sample")  # sample | mcp
+    gms_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,6 +1,12 @@
-import type { ArtifactBundle, MatchedDataset, Run, ValidationReport } from "@/lib/types";
+import type { AgentId, ArtifactBundle, MatchedDataset, Run, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
 import { toApiError } from "@/lib/errors";
+import { accessToken } from "@/lib/supabase/client";
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await accessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // The deployed Vercel build defaults to a client-side simulation so /demo
 // and /new work reliably without depending on a live backend — Render's
@@ -21,7 +27,7 @@ export const HAS_BACKEND =
 // browser and pauses at each checkpoint. The checkpoint panels still call
 // acceptContext / startFresh / approveWriteback / skipWriteback — postAction
 // below fires the matching resolver so the simulation advances past the
-// pause, mirroring what the backend does over WS in real mode.
+// pause, mirroring what the checkpoint endpoints do in real mode.
 
 type ResumeSignal = () => void;
 const resumeSignals = new Map<string, ResumeSignal[]>();
@@ -43,7 +49,7 @@ function triggerSimulationResume(requestId: string): void {
 }
 
 async function http<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders() });
   if (!res.ok) throw await toApiError(res);
   return res.json();
 }
@@ -74,7 +80,7 @@ export async function createRun(prompt: string): Promise<{ run_id: string }> {
   if (HAS_BACKEND) {
     const res = await fetch(`${API_BASE}/api/runs`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
       body: JSON.stringify({ prompt }),
     });
     if (!res.ok) throw await toApiError(res);
@@ -91,7 +97,7 @@ async function postAction(requestId: string, path: string): Promise<void> {
     triggerSimulationResume(requestId);
     return;
   }
-  const res = await fetch(`${API_BASE}/api/runs/${requestId}${path}`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/api/runs/${requestId}${path}`, { method: "POST", headers: await authHeaders() });
   if (!res.ok) throw await toApiError(res);
 }
 
@@ -115,10 +121,20 @@ export async function skipWriteback(requestId: string): Promise<void> {
   return postAction(requestId, "/writeback/skip");
 }
 
-// WS /api/runs/{id}/stream — build a live socket URL for useRunStream.
-export function streamUrl(requestId: string): string {
-  const base = API_BASE.replace(/^http/, "ws") || "ws://localhost:8000";
-  return `${base}/api/runs/${requestId}/stream`;
+// POST /api/runs/{id}/fixes/{fixId}/apply — apply a QA fix; returns the re-checked report
+export async function applyFix(requestId: string, fixId: string): Promise<ValidationReport> {
+  if (!HAS_BACKEND) return { ...mockValidation(requestId), passed: true, blocking: false };
+  const res = await fetch(`${API_BASE}/api/runs/${requestId}/fixes/${fixId}/apply`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw await toApiError(res);
+  return res.json();
+}
+
+// POST /api/runs/{id}/steps/{agent}/retry — continue a failed run from the step it stopped at
+export async function retryStep(requestId: string, agent: AgentId): Promise<void> {
+  return postAction(requestId, `/steps/${agent}/retry`);
 }
 
 function delay(ms: number) {
@@ -185,6 +201,8 @@ function mockRun(requestId: string): Run {
               } as Record<string, unknown>)
             : null,
       error: null,
+      logs: [],
+      usage: null,
     })),
   };
 }
@@ -259,6 +277,7 @@ function mockValidation(requestId: string): ValidationReport {
     run_id: requestId,
     passed: false,
     blocking: true,
+    fixes: [],
     checks: [
       {
         name: "Schema compatibility",
