@@ -12,6 +12,7 @@ export function Photo({
   priority = false,
   drift = false,
   sizes = "(min-width: 768px) 50vw, 100vw",
+  quality,
 }: {
   src: string;
   alt: string;
@@ -20,6 +21,7 @@ export function Photo({
   priority?: boolean;
   drift?: boolean;
   sizes?: string;
+  quality?: number;
 }) {
   return (
     <div className={`relative overflow-hidden rounded-xl bg-surface-2 ${className}`}>
@@ -29,6 +31,7 @@ export function Photo({
         fill
         priority={priority}
         sizes={sizes}
+        quality={quality}
         style={{ objectFit: "cover", objectPosition: position }}
         className={drift ? "motion-safe:animate-[drift_20s_cubic-bezier(0.22,1,0.36,1)_both]" : undefined}
       />

@@ -148,6 +148,32 @@ body {
   50% { opacity: 0.55; }
 }
 
+@keyframes draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes tick {
+  to { transform: translateX(-50%); }
+}
+@keyframes blink {
+  50% { opacity: 0; }
+}
+@keyframes travel {
+  from { left: 0%; }
+  to { left: 100%; }
+}
+@keyframes safelight {
+  50% { opacity: 0.55; }
+}
+/* the warm lamp glow over hero photographs, breathing slowly */
+.safelight-glow {
+  pointer-events: none;
+  background: radial-gradient(55% 60% at 18% 0%, rgb(207 218 168 / 0.1), transparent 70%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .safelight-glow { animation: safelight 6s ease-in-out infinite; }
+}
+
 @keyframes float {
   50% { transform: translateY(-6px); }
 }
@@ -161,188 +187,3 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
-
-/* ---------------------------------------------------------------------------
-   Legacy names, mapped onto the new tokens so pages not yet rebuilt stay on palette.
-   Each page drops these as it is rebuilt (#33-#39); the block goes with #39.
-   --------------------------------------------------------------------------- */
-:root {
-  --bg-base: var(--surface-0);
-  --bg-alt: var(--surface-1);
-  --bg-card: var(--surface-1);
-  --bg-card-alt: var(--surface-2);
-  --border-hairline: var(--line);
-  --border-hairline-strong: var(--line);
-  --accent: var(--moss);
-  --accent-hover: var(--moss-deep);
-  --accent-dim: var(--surface-2);
-  --accent-dim-border: var(--line);
-  --text-heading: var(--ink);
-  --text-body: var(--ink-2);
-  --text-body-strong: var(--ink-2);
-  --text-muted: var(--ink-3);
-  --status-review-bg: var(--surface-2);
-  --status-review-text: var(--amber);
-  --status-scheduled-bg: var(--surface-2);
-  --status-scheduled-text: var(--ink-3);
-  --status-high-bg: var(--critical-wash);
-  --status-high-text: var(--critical);
-  --status-medium-bg: var(--surface-2);
-  --status-medium-text: var(--amber);
-  --status-low-bg: var(--surface-2);
-  --status-low-text: var(--ink-3);
-  --radius-card: 24px;
-  --radius-pill: 999px;
-}
-
-@theme inline {
-  --color-bg-base: var(--bg-base);
-  --color-bg-alt: var(--bg-alt);
-  --color-bg-card: var(--bg-card);
-  --color-bg-card-alt: var(--bg-card-alt);
-  --color-border-hairline: var(--border-hairline);
-  --color-accent: var(--accent);
-  --color-accent-hover: var(--accent-hover);
-  --color-text-heading: var(--text-heading);
-  --color-text-body: var(--text-body);
-  --color-text-body-strong: var(--text-body-strong);
-  --color-text-muted: var(--text-muted);
-}
-
-.font-mono-atlas {
-  font-family: var(--font-mono);
-}
-
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-hairline-strong);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-body-strong);
-}
-.eyebrow::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
-.card-atlas {
-  background: var(--bg-card);
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-card);
-}
-
-.btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 22px;
-  border-radius: var(--radius-pill);
-  background: var(--safelight);
-  color: var(--action-ink);
-  font-weight: 500;
-  font-size: 14px;
-  transition: background 0.15s ease;
-}
-.btn-primary:hover {
-  filter: brightness(1.05);
-}
-
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 22px;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  border: 1px solid var(--border-hairline-strong);
-  color: var(--text-heading);
-  font-weight: 500;
-  font-size: 14px;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-.btn-secondary:hover {
-  background: var(--surface-2);
-}
-
-.badge-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-family: var(--font-mono);
-}
-.badge-status::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-}
-.badge-running {
-  background: var(--status-high-bg);
-  color: var(--status-high-text);
-}
-.badge-running::before {
-  background: var(--status-high-text);
-}
-.badge-review {
-  background: var(--status-review-bg);
-  color: var(--status-review-text);
-}
-.badge-review::before {
-  background: var(--status-review-text);
-}
-.badge-scheduled {
-  background: var(--status-scheduled-bg);
-  color: var(--status-scheduled-text);
-}
-.badge-scheduled::before {
-  background: var(--status-scheduled-text);
-}
-
-.badge-risk {
-  display: inline-flex;
-  padding: 3px 10px;
-  border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-family: var(--font-mono);
-}
-.badge-risk-low {
-  background: var(--status-low-bg);
-  color: var(--status-low-text);
-}
-.badge-risk-medium {
-  background: var(--status-medium-bg);
-  color: var(--status-medium-text);
-}
-.badge-risk-high {
-  background: var(--status-high-bg);
-  color: var(--status-high-text);
-}
-
-.chip {
-  display: inline-flex;
-  padding: 5px 12px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-hairline-strong);
-  font-size: 12px;
-  color: var(--text-body-strong);
-}
-

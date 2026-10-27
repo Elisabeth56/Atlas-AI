@@ -1,27 +1,25 @@
-import { Nav } from "@/components/layout/Nav";
-import { Footer } from "@/components/layout/Footer";
-import { Hero } from "@/components/landing/Hero";
-import { WhoItsFor } from "@/components/landing/WhoItsFor";
-import { AgentFleet } from "@/components/landing/AgentFleet";
-import { HowItWorks } from "@/components/landing/HowItWorks";
-import { WhyAtlas } from "@/components/landing/WhyAtlas";
-import { FAQ } from "@/components/landing/FAQ";
-import { ClosingCTA } from "@/components/landing/ClosingCTA";
+import { ClosingPrompt } from "@/components/landing/ClosingPrompt";
+import { EdgePrint } from "@/components/landing/EdgePrint";
+import { HeroDevelop } from "@/components/landing/HeroDevelop";
+import { LandingNav } from "@/components/landing/LandingNav";
+import { Colophon, ContactSheet, Faq, Pipeline, QaSection } from "@/components/landing/Sections";
 
 export default function Home() {
   return (
-    <>
-      <Nav />
-      <main className="flex-1">
-        <Hero />
-        <WhoItsFor />
-        <AgentFleet />
-        <HowItWorks />
-        <WhyAtlas />
-        <FAQ />
-        <ClosingCTA />
-      </main>
-      <Footer />
-    </>
+    <div data-theme="dark" className="overflow-hidden bg-surface-0 text-ink-2">
+      <EdgePrint />
+      <div className="mx-auto max-w-[1240px] px-4 sm:px-6">
+        <LandingNav />
+        <main>
+          <HeroDevelop />
+          <ContactSheet />
+          <Pipeline />
+          <QaSection />
+          <Faq />
+          <ClosingPrompt />
+        </main>
+        <Colophon />
+      </div>
+    </div>
   );
 }
