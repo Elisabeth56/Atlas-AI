@@ -25,13 +25,14 @@ from app.auth import Caller, current_caller
 from app.config import get_settings
 from app.database import get_db
 from app.errors import AppError
-from app.models import Artifact, Run, ValidationReport
+from app.models import Artifact, LlmCall, Run, ValidationReport
 from app.schemas import (
     ArtifactBundleOut,
     CreateRunIn,
     CreateRunOut,
     RunListItemOut,
     RunOut,
+    StepUsageOut,
     ValidationCheckOut,
     ValidationReportOut,
 )
@@ -70,13 +71,17 @@ async def create_run(
 
 
 @router.get("/{run_id}", response_model=RunOut)
-async def get_run(run_id: str, caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db)) -> Run:
+async def get_run(run_id: str, caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db)) -> RunOut:
     run = await db.scalar(
         select(Run).where(Run.id == run_id, Run.workspace_id == caller.workspace_id).options(selectinload(Run.steps))
     )
     if run is None:
         raise _not_found()
-    return run
+    out = RunOut.model_validate(run)
+    usage = await _usage_by_agent(db, run_id)
+    for step in out.steps:
+        step.usage = usage.get(step.agent)
+    return out
 
 
 @router.get("/{run_id}/artifacts", response_model=ArtifactBundleOut)
@@ -163,6 +168,25 @@ async def _check_rate_limit(db: AsyncSession, caller: Caller) -> None:
     )
     if recent >= limit:
         raise AppError(429, "rate_limited", f"You can start {limit} runs an hour. Try again a little later.")
+
+
+async def _usage_by_agent(db: AsyncSession, run_id: str) -> dict[str, StepUsageOut]:
+    rows = await db.execute(
+        select(
+            LlmCall.agent,
+            func.count(),
+            func.coalesce(func.sum(LlmCall.tokens_in), 0),
+            func.coalesce(func.sum(LlmCall.tokens_out), 0),
+            func.sum(LlmCall.latency_ms),
+            func.count().filter(LlmCall.outcome != "ok"),
+        )
+        .where(LlmCall.run_id == run_id)
+        .group_by(LlmCall.agent)
+    )
+    return {
+        agent: StepUsageOut(calls=n, tokens_in=t_in, tokens_out=t_out, latency_ms=ms, failed_calls=failed)
+        for agent, n, t_in, t_out, ms, failed in rows.all()
+    }
 
 
 async def _owned_run(db: AsyncSession, run_id: str, caller: Caller) -> Run:

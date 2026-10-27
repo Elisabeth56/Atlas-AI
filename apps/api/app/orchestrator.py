@@ -12,6 +12,7 @@ framework: the phases are fixed and never loop.
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select, update
@@ -30,10 +31,10 @@ from app.datahub.gateway import DataHubGateway
 from app.datahub.mcp_gateway import DataHubMCPGateway
 from app.datahub.mock_gateway import MockDataHubGateway
 from app.demo.seed_data import mock_llm_fixtures
-from app.llm.chain import ProviderChain, providers_from_settings
+from app.llm.chain import CallRecord, ProviderChain, providers_from_settings
 from app.llm.mock_provider import MockLLMProvider
 from app.llm.provider import LLMProvider
-from app.models import Artifact, Run, RunStep, ValidationReport
+from app.models import Artifact, LlmCall, Run, RunStep, ValidationReport
 from app.schemas import AGENT_SEQUENCE, GeneratedFile
 
 logger = logging.getLogger("atlas.orchestrator")
@@ -62,7 +63,39 @@ def _build_llm_provider() -> LLMProvider:
         return MockLLMProvider(fixtures=mock_llm_fixtures())
     providers = providers_from_settings(settings)
     logger.info("orchestrator: using providers %s", [p.name for p in providers])
-    return ProviderChain(providers, timeout_seconds=settings.LLM_TIMEOUT_SECONDS)
+    return ProviderChain(providers, timeout_seconds=settings.LLM_TIMEOUT_SECONDS, on_call=record_llm_call)
+
+
+# the step an LLM call belongs to; set around each agent.run so the chain doesn't need to know
+current_step: ContextVar[tuple[str, str] | None] = ContextVar("current_step", default=None)
+
+
+async def record_llm_call(call: CallRecord) -> None:
+    """Stores the call. Failures and fallbacks also go in the step's live log, so they show in the run view."""
+    scope = current_step.get()
+    if scope is None:
+        return
+    run_id, agent = scope
+    line = None
+    if call.outcome != "ok":
+        line = f"{call.provider} {call.outcome.replace('_', ' ')}"
+    elif call.fallback:
+        line = f"answered by {call.provider} ({call.model})"
+    async with session_scope() as db:
+        db.add(LlmCall(
+            run_id=run_id, agent=agent, provider=call.provider, model=call.model, prompt_id=call.prompt_id,
+            tokens_in=call.tokens_in, tokens_out=call.tokens_out, latency_ms=call.latency_ms, outcome=call.outcome,
+        ))
+        if line:
+            await _append_log(db, run_id, agent, line)
+
+
+async def _append_log(db: AsyncSession, run_id: str, agent: str, line: str) -> None:
+    await db.execute(
+        update(RunStep)
+        .where(RunStep.run_id == run_id, RunStep.agent == agent)
+        .values(logs=RunStep.logs.op("||")(func.jsonb_build_array(line)))
+    )
 
 
 # One MCP connection (a subprocess plus session) shared by every phase of every run.
@@ -123,11 +156,7 @@ def _make_context(run_id: str, prompt: str) -> RunContext:
         """Appends a line to the current step's log; the row change is what the browser sees."""
         logger.info("agent_log run_id=%s agent=%s message=%s", run_id, ctx.current_agent, text)
         async with session_scope() as db:
-            await db.execute(
-                update(RunStep)
-                .where(RunStep.run_id == run_id, RunStep.agent == ctx.current_agent)
-                .values(logs=RunStep.logs.op("||")(func.jsonb_build_array(text)))
-            )
+            await _append_log(db, run_id, ctx.current_agent, text)
 
     ctx = RunContext(
         run_id=run_id,
@@ -172,12 +201,15 @@ async def _run_phase_agents(
 
         await _persist_stage_start(run_id, sequence, agent.name)
 
+        token = current_step.set((run_id, agent.name))
         try:
             result: AgentResult = await agent.run(ctx)
         except Exception as exc:  # noqa: BLE001 — any agent failure aborts the run
             logger.exception("agent %s failed for run %s", agent.name, run_id)
             await _persist_stage_failure(run_id, sequence, agent.name, str(exc))
             return False
+        finally:
+            current_step.reset(token)
 
         ctx.results[agent.name] = result.data
         await _persist_stage_success(

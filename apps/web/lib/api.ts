@@ -186,6 +186,7 @@ function mockRun(requestId: string): Run {
             : null,
       error: null,
       logs: [],
+      usage: null,
     })),
   };
 }

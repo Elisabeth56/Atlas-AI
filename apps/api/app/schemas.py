@@ -56,6 +56,14 @@ ValidationSeverity = Literal["info", "warning", "critical"]
 
 # --- REST: agent runs -----------------------------------------------
 
+class StepUsageOut(BaseModel):
+    calls: int
+    tokens_in: int
+    tokens_out: int
+    latency_ms: int
+    failed_calls: int  # rate limits, errors and timeouts, including ones that fell back to another provider
+
+
 class RunStepOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,6 +77,7 @@ class RunStepOut(BaseModel):
     output: dict | None
     error: str | None
     logs: list[str]
+    usage: StepUsageOut | None = None  # None when the step made no LLM calls (or ran on the mock)
 
 
 # --- REST: requests ---------------------------------------------------

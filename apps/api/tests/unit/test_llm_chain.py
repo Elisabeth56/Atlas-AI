@@ -31,9 +31,9 @@ class Script:
 
     def __init__(self, *responses: httpx.Response) -> None:
         self.responses = list(responses)
-        self.requests: list[httpx.Run] = []
+        self.requests: list[httpx.Request] = []
 
-    def __call__(self, request: httpx.Run) -> httpx.Response:
+    def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         return self.responses.pop(0)
 
@@ -116,3 +116,21 @@ async def test_system_prompt_comes_from_the_prompt_file():
     system = json.loads(script.requests[0].content)["messages"][0]["content"]
     assert system.startswith("You are the Planner agent")
     assert "JSON schema" in system
+
+
+async def test_every_call_is_reported_with_fallback_marked():
+    records = []
+
+    async def collect(record):
+        records.append(record)
+
+    script = Script(httpx.Response(429), _completion(VALID))
+    chain = ProviderChain([GROQ, CEREBRAS], transport=httpx.MockTransport(script), on_call=collect)
+
+    await _plan(chain)
+
+    assert [(r.provider, r.outcome, r.fallback) for r in records] == [
+        ("groq", "rate_limited", False),
+        ("cerebras", "ok", True),
+    ]
+    assert (records[1].tokens_in, records[1].tokens_out) == (100, 20)

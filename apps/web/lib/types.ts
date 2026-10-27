@@ -22,6 +22,15 @@ export interface RunStep {
   output: Record<string, unknown> | null;
   error: string | null;
   logs: string[]; // appended live by the worker
+  usage: StepUsage | null; // null when the step made no LLM calls
+}
+
+export interface StepUsage {
+  calls: number;
+  tokens_in: number;
+  tokens_out: number;
+  latency_ms: number;
+  failed_calls: number;
 }
 
 export type RequestStatus =
