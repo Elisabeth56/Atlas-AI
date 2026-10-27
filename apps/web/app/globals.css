@@ -1,37 +1,170 @@
 @import "tailwindcss";
 
+/* Atlas design tokens (design system "Atlas", darkroom direction). Dark is the primary theme;
+   light is designed separately: paper ground, same moss and safelight. */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #141311;
+  --surface-1: #1c1b18;
+  --surface-2: #26241f;
+  --film: #0f0e0c; /* contact-sheet film base, same in both themes */
+  --line: rgba(237, 235, 230, 0.08);
+  --ink: #edebe6;
+  --ink-2: #b4b1aa;
+  --ink-3: #9c9a94;
+  --moss: #a3b072;
+  --moss-deep: #6f7f45;
+  --safelight: #cfdaa8;
+  --action-ink: #20260f;
+  --amber: #d9a15b;
+  --critical: #e08a7a;
+  --critical-wash: #2a1d1a;
+  --suggest: #cfdaa8; /* text of a suggested fix: safelight on dark, moss on paper */
+  --live: #cfdaa8; /* the running dot */
+  --drop: rgb(0 0 0 / 0.55);
+  --shadow-card: inset 0 0 0 1px rgba(237, 235, 230, 0.06), 0 1px 2px rgba(0, 0, 0, 0.2), 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --surface-0: #f1efea;
+  --surface-1: #f8f7f3;
+  --surface-2: #e6e3dc;
+  --line: rgba(30, 28, 24, 0.1);
+  --ink: #1e1c18;
+  --ink-2: #4d4a44;
+  --ink-3: #6b6862;
+  --moss: #56622e;
+  --amber: #8a5a1c;
+  --critical: #9b3a2a;
+  --critical-wash: #f4e4e0;
+  --suggest: #56622e;
+  --live: #6f7f45;
+  --drop: rgba(30, 28, 24, 0.16);
+  --shadow-card: 0 1px 2px rgba(30, 28, 24, 0.05), 0 12px 32px rgba(30, 28, 24, 0.08);
+}
+
+@theme inline {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-film: var(--film);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-moss: var(--moss);
+  --color-moss-deep: var(--moss-deep);
+  --color-safelight: var(--safelight);
+  --color-action-ink: var(--action-ink);
+  --color-amber: var(--amber);
+  --color-critical: var(--critical);
+  --color-critical-wash: var(--critical-wash);
+  --color-suggest: var(--suggest);
+  --color-live: var(--live);
+
+  --font-sans: var(--font-hanken), system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-hand: var(--font-caveat), "Comic Sans MS", cursive;
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 24px;
+  --radius-xl: 28px;
+
+  --shadow-card: var(--shadow-card);
+
+  --ease-develop: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-ui: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* type styles from the design system */
+@utility text-display { font-size: 62px; line-height: 64px; font-weight: 600; letter-spacing: -0.035em; }
+@utility text-title { font-size: 40px; line-height: 44px; font-weight: 600; letter-spacing: -0.03em; }
+@utility text-heading { font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.02em; }
+@utility text-lead { font-size: 17px; line-height: 26px; }
+@utility text-body { font-size: 16px; line-height: 24px; }
+@utility text-small { font-size: 14px; line-height: 21px; letter-spacing: 0.01em; }
+@utility text-grease { font-family: var(--font-hand); font-size: 22px; line-height: 26px; }
+@utility text-eyebrow { font-family: var(--font-mono); font-size: 12px; line-height: 18px; letter-spacing: 0.06em; }
+@utility text-caption { font-family: var(--font-mono); font-size: 12px; line-height: 18px; letter-spacing: 0.01em; }
+@utility text-code { font-family: var(--font-mono); font-size: 13px; line-height: 22px; }
+
+/* the one border in the system: a hairline drawn as an inset shadow */
+@utility hairline { box-shadow: inset 0 0 0 1px var(--line); }
+
+html {
+  background: var(--surface-0);
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--ink-2);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum" 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--moss);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--safelight);
+  color: var(--action-ink);
+}
+
+@keyframes breathe {
+  50% { opacity: 0.45; }
+}
+
+@keyframes float {
+  50% { transform: translateY(-6px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Legacy names, mapped onto the new tokens so pages not yet rebuilt stay on palette.
+   Each page drops these as it is rebuilt (#33-#39); the block goes with #39.
+   --------------------------------------------------------------------------- */
 :root {
-  --bg-base: #0a0a0c;
-  --bg-alt: #131a26;
-  --bg-card: #111318;
-  --bg-card-alt: #14161c;
-  --border-hairline: rgba(255, 255, 255, 0.08);
-  --border-hairline-strong: rgba(255, 255, 255, 0.14);
-
-  --accent: #e14d5f;
-  --accent-hover: #c93f50;
-  --accent-dim: rgba(225, 77, 95, 0.12);
-  --accent-dim-border: rgba(225, 77, 95, 0.35);
-
-  --text-heading: #f5f5f6;
-  --text-body: #8a8d96;
-  --text-body-strong: #b4b7c0;
-  --text-muted: #5c5f68;
-
-  --status-review-bg: rgba(191, 155, 48, 0.14);
-  --status-review-text: #cfa53c;
-  --status-scheduled-bg: rgba(255, 255, 255, 0.06);
-  --status-scheduled-text: #9a9da5;
-  --status-high-bg: rgba(225, 77, 95, 0.14);
-  --status-high-text: #e14d5f;
-  --status-medium-bg: rgba(191, 155, 48, 0.14);
-  --status-medium-text: #cfa53c;
-  --status-low-bg: rgba(255, 255, 255, 0.06);
-  --status-low-text: #9a9da5;
-
-  --radius-card: 16px;
+  --bg-base: var(--surface-0);
+  --bg-alt: var(--surface-1);
+  --bg-card: var(--surface-1);
+  --bg-card-alt: var(--surface-2);
+  --border-hairline: var(--line);
+  --border-hairline-strong: var(--line);
+  --accent: var(--moss);
+  --accent-hover: var(--moss-deep);
+  --accent-dim: var(--surface-2);
+  --accent-dim-border: var(--line);
+  --text-heading: var(--ink);
+  --text-body: var(--ink-2);
+  --text-body-strong: var(--ink-2);
+  --text-muted: var(--ink-3);
+  --status-review-bg: var(--surface-2);
+  --status-review-text: var(--amber);
+  --status-scheduled-bg: var(--surface-2);
+  --status-scheduled-text: var(--ink-3);
+  --status-high-bg: var(--critical-wash);
+  --status-high-text: var(--critical);
+  --status-medium-bg: var(--surface-2);
+  --status-medium-text: var(--amber);
+  --status-low-bg: var(--surface-2);
+  --status-low-text: var(--ink-3);
+  --radius-card: 24px;
   --radius-pill: 999px;
-  --container-max: 1280px;
 }
 
 @theme inline {
@@ -46,23 +179,6 @@
   --color-text-body: var(--text-body);
   --color-text-body-strong: var(--text-body-strong);
   --color-text-muted: var(--text-muted);
-  --font-sans: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, ui-monospace, monospace;
-}
-
-* {
-  border-color: var(--border-hairline);
-}
-
-html {
-  background: var(--bg-base);
-}
-
-body {
-  background: var(--bg-base);
-  color: var(--text-body);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
 }
 
 .font-mono-atlas {
@@ -103,14 +219,14 @@ body {
   gap: 8px;
   padding: 12px 22px;
   border-radius: var(--radius-pill);
-  background: var(--accent);
-  color: #fff;
+  background: var(--safelight);
+  color: var(--action-ink);
   font-weight: 500;
   font-size: 14px;
   transition: background 0.15s ease;
 }
 .btn-primary:hover {
-  background: var(--accent-hover);
+  filter: brightness(1.05);
 }
 
 .btn-secondary {
@@ -127,8 +243,7 @@ body {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.24);
+  background: var(--surface-2);
 }
 
 .badge-status {
@@ -203,17 +318,3 @@ body {
   color: var(--text-body-strong);
 }
 
-::selection {
-  background: var(--accent);
-  color: #fff;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}

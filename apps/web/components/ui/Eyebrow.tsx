@@ -1,3 +1,3 @@
 export function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <span className="eyebrow">{children}</span>;
+  return <span className="text-eyebrow text-moss lowercase">{children}</span>;
 }
