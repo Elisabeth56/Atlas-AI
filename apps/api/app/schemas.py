@@ -97,6 +97,7 @@ class RunListItemOut(BaseModel):
     prompt: str
     status: RequestStatus
     created_at: datetime
+    writeback_mode: WritebackMode | None  # tells "written back" from "skipped" in the runs list
 
 
 class RunOut(BaseModel):

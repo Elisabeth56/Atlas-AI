@@ -2,7 +2,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const APP_PATHS = ["/new", "/agents", "/dashboard"];
+const APP_PATHS = ["/new", "/agents"];
 
 export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

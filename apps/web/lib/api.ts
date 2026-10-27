@@ -1,4 +1,4 @@
-import type { AgentId, ArtifactBundle, MatchedDataset, Run, ValidationReport } from "@/lib/types";
+import type { AgentId, ArtifactBundle, MatchedDataset, Run, RunListItem, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
 import { toApiError } from "@/lib/errors";
 import { accessToken } from "@/lib/supabase/client";
@@ -52,6 +52,12 @@ async function http<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders() });
   if (!res.ok) throw await toApiError(res);
   return res.json();
+}
+
+// GET /api/runs — the workspace's recent runs, newest first
+export async function listRuns(limit = 30): Promise<RunListItem[]> {
+  if (!HAS_BACKEND) return [];
+  return http(`/api/runs?limit=${limit}`);
 }
 
 // GET /api/runs/{id}

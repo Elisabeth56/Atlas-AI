@@ -44,6 +44,14 @@ export type RequestStatus =
 export type ContextMode = "grounded" | "fresh";
 export type WritebackMode = "approved" | "skipped";
 
+export interface RunListItem {
+  id: string;
+  prompt: string;
+  status: RequestStatus;
+  created_at: string;
+  writeback_mode: WritebackMode | null;
+}
+
 export interface Run {
   id: string;
   prompt: string;

@@ -8,6 +8,7 @@
   --surface-0: #141311;
   --surface-1: #1c1b18;
   --surface-2: #26241f;
+  --sidebar: #181715;
   --film: #0f0e0c; /* contact-sheet film base, same in both themes */
   --line: rgba(237, 235, 230, 0.08);
   --ink: #edebe6;
@@ -31,6 +32,7 @@
   --surface-0: #f1efea;
   --surface-1: #f8f7f3;
   --surface-2: #e6e3dc;
+  --sidebar: #e9e6e0;
   --line: rgba(30, 28, 24, 0.1);
   --ink: #1e1c18;
   --ink-2: #4d4a44;
@@ -49,6 +51,7 @@
   --color-surface-0: var(--surface-0);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
+  --color-sidebar: var(--sidebar);
   --color-film: var(--film);
   --color-line: var(--line);
   --color-ink: var(--ink);
@@ -106,14 +109,17 @@ body {
   font-feature-settings: "tnum" 0;
 }
 
-:focus-visible {
-  outline: 2px solid var(--moss);
-  outline-offset: 2px;
-}
+/* in the base layer so a component's own focus style (an outline-none input inside a ringed card) wins */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--moss);
+    outline-offset: 2px;
+  }
 
-::selection {
-  background: var(--safelight);
-  color: var(--action-ink);
+  ::selection {
+    background: var(--safelight);
+    color: var(--action-ink);
+  }
 }
 
 @keyframes breathe {
