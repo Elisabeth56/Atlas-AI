@@ -92,4 +92,16 @@ export interface ValidationReport {
   checks: ValidationCheck[];
   passed: boolean;
   blocking: boolean;
+  fixes: QaFix[];
+}
+
+// A patch QA can apply itself: replace `before` with `after` on `line` of `file`.
+export interface QaFix {
+  id: string;
+  file: string;
+  line: number;
+  column: string;
+  before: string;
+  after: string;
+  applied: boolean;
 }

@@ -121,6 +121,17 @@ export async function skipWriteback(requestId: string): Promise<void> {
   return postAction(requestId, "/writeback/skip");
 }
 
+// POST /api/runs/{id}/fixes/{fixId}/apply — apply a QA fix; returns the re-checked report
+export async function applyFix(requestId: string, fixId: string): Promise<ValidationReport> {
+  if (!HAS_BACKEND) return { ...mockValidation(requestId), passed: true, blocking: false };
+  const res = await fetch(`${API_BASE}/api/runs/${requestId}/fixes/${fixId}/apply`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) throw await toApiError(res);
+  return res.json();
+}
+
 // POST /api/runs/{id}/steps/{agent}/retry — continue a failed run from the step it stopped at
 export async function retryStep(requestId: string, agent: AgentId): Promise<void> {
   return postAction(requestId, `/steps/${agent}/retry`);
@@ -266,6 +277,7 @@ function mockValidation(requestId: string): ValidationReport {
     run_id: requestId,
     passed: false,
     blocking: true,
+    fixes: [],
     checks: [
       {
         name: "Schema compatibility",

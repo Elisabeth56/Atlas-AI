@@ -140,11 +140,24 @@ class ValidationCheckOut(BaseModel):
     severity: ValidationSeverity
 
 
+class FixOut(BaseModel):
+    """A patch QA can apply itself: replace `before` with `after` on `line` of `file`."""
+
+    id: str
+    file: str
+    line: int
+    column: str
+    before: str
+    after: str
+    applied: bool
+
+
 class ValidationReportOut(BaseModel):
     run_id: str
     checks: list[ValidationCheckOut]
     passed: bool
     blocking: bool
+    fixes: list[FixOut] = []
 
 
 # --- Internal: agent I/O schemas ----------------------------------------
