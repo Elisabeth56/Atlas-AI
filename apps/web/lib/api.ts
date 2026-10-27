@@ -1,6 +1,12 @@
 import type { ArtifactBundle, MatchedDataset, Run, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
 import { toApiError } from "@/lib/errors";
+import { accessToken } from "@/lib/supabase/client";
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await accessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // The deployed Vercel build defaults to a client-side simulation so /demo
 // and /new work reliably without depending on a live backend — Render's
@@ -43,7 +49,7 @@ function triggerSimulationResume(requestId: string): void {
 }
 
 async function http<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders() });
   if (!res.ok) throw await toApiError(res);
   return res.json();
 }
@@ -74,7 +80,7 @@ export async function createRun(prompt: string): Promise<{ run_id: string }> {
   if (HAS_BACKEND) {
     const res = await fetch(`${API_BASE}/api/runs`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
       body: JSON.stringify({ prompt }),
     });
     if (!res.ok) throw await toApiError(res);
@@ -91,7 +97,7 @@ async function postAction(requestId: string, path: string): Promise<void> {
     triggerSimulationResume(requestId);
     return;
   }
-  const res = await fetch(`${API_BASE}/api/runs/${requestId}${path}`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/api/runs/${requestId}${path}`, { method: "POST", headers: await authHeaders() });
   if (!res.ok) throw await toApiError(res);
 }
 

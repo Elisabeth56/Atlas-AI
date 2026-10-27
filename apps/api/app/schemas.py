@@ -108,6 +108,15 @@ class CreateRunOut(BaseModel):
     run_id: str
 
 
+class RunListItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    prompt: str
+    status: RequestStatus
+    created_at: datetime
+
+
 class RunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

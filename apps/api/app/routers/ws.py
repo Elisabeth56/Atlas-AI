@@ -9,8 +9,11 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app import ws_hub
+from app.auth import verify_token
+from app.config import get_settings
 from app.database import session_scope
-from app.models import Run
+from app.errors import AppError
+from app.models import Run, WorkspaceMember
 
 logger = logging.getLogger("atlas.routers.ws")
 
@@ -18,9 +21,11 @@ router = APIRouter(tags=["stream"])
 
 
 @router.websocket("/api/runs/{run_id}/stream")
-async def stream_run(websocket: WebSocket, run_id: str) -> None:
+async def stream_run(websocket: WebSocket, run_id: str, token: str | None = None) -> None:
     async with session_scope() as db:
         run = await db.get(Run, run_id)
+        if run is not None and not await _may_watch(db, run, token):
+            run = None  # same answer as a missing run, so ids can't be probed
 
     if run is None:
         # Accept then close with a policy-violation code so the frontend's
@@ -41,3 +46,14 @@ async def stream_run(websocket: WebSocket, run_id: str) -> None:
         pass
     finally:
         await ws_hub.manager.disconnect(run_id, websocket)
+
+
+async def _may_watch(db, run: Run, token: str | None) -> bool:
+    if get_settings().AUTH_MODE == "off":
+        return True
+    try:
+        claims = await verify_token(token or "")
+    except AppError:
+        return False
+    member = await db.get(WorkspaceMember, (run.workspace_id, claims["sub"]))
+    return member is not None

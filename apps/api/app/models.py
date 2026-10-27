@@ -106,3 +106,21 @@ class Workspace(Base):
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WorkspaceMember(Base):
+    __tablename__ = "workspace_members"
+
+    workspace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("workspaces.id"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), default="owner")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DatahubConnection(Base):
+    __tablename__ = "datahub_connections"
+
+    workspace_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("workspaces.id"), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(16), default="sample")  # sample | mcp
+    gms_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
