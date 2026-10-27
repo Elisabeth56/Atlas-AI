@@ -1,4 +1,4 @@
-import type { ArtifactBundle, MatchedDataset, Run, ValidationReport } from "@/lib/types";
+import type { AgentId, ArtifactBundle, MatchedDataset, Run, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
 import { toApiError } from "@/lib/errors";
 import { accessToken } from "@/lib/supabase/client";
@@ -119,6 +119,11 @@ export async function approveWriteback(requestId: string): Promise<void> {
 // POST /api/runs/{id}/writeback/skip — finish without writing back
 export async function skipWriteback(requestId: string): Promise<void> {
   return postAction(requestId, "/writeback/skip");
+}
+
+// POST /api/runs/{id}/steps/{agent}/retry — continue a failed run from the step it stopped at
+export async function retryStep(requestId: string, agent: AgentId): Promise<void> {
+  return postAction(requestId, `/steps/${agent}/retry`);
 }
 
 function delay(ms: number) {

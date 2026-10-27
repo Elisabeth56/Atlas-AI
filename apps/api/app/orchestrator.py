@@ -257,6 +257,12 @@ async def resume_writeback_phase(run_id: str) -> None:
 
 PHASES = {"context": run_context_phase, "generation": resume_generation_phase, "writeback": resume_writeback_phase}
 
+PHASE_OF_AGENT = {
+    **{agent.name: "context" for _, agent in CONTEXT_PHASE},
+    **{agent.name: "generation" for _, agent in GENERATION_PHASE},
+    **{agent.name: "writeback" for _, agent in WRITEBACK_PHASE},
+}
+
 
 async def _start(run_id: str, *, allowed: set[str]) -> Run | None:
     """Marks the run running. None means there's nothing to do (already moved on, or gone)."""
@@ -283,7 +289,8 @@ async def _persist_stage_start(run_id: str, sequence: int, agent: str) -> None:
         step = await _get_or_create_step(db, run_id, sequence, agent)
         step.status = "started"
         step.started_at = datetime.now(UTC)
-        step.logs = []  # a retried step starts a fresh log
+        step.logs = []  # a retried step starts with a fresh log and no old error
+        step.error = None
 
 
 async def _persist_stage_success(

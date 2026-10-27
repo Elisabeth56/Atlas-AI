@@ -10,6 +10,7 @@ Every route is scoped to the caller's workspace; a run in another workspace is a
   POST /api/runs/{id}/context/start-fresh checkpoint 1: continue without grounding
   POST /api/runs/{id}/writeback/approve   checkpoint 2: write docs and lineage to DataHub
   POST /api/runs/{id}/writeback/skip      checkpoint 2: finish without writing back
+  POST /api/runs/{id}/steps/{agent}/retry continue a failed run from the step it stopped at
 """
 from __future__ import annotations
 
@@ -25,8 +26,10 @@ from app.auth import Caller, current_caller
 from app.config import get_settings
 from app.database import get_db
 from app.errors import AppError
-from app.models import Artifact, LlmCall, Run, ValidationReport
+from app.models import Artifact, LlmCall, Run, RunStep, ValidationReport
+from app.orchestrator import PHASE_OF_AGENT
 from app.schemas import (
+    AgentId,
     ArtifactBundleOut,
     CreateRunIn,
     CreateRunOut,
@@ -155,6 +158,33 @@ async def skip_writeback(
 ) -> dict[str, str]:
     await _claim(db, run_id, caller, "awaiting_writeback_approval", phase="writeback", writeback_mode="skipped")
     return {"status": "resuming"}
+
+
+@router.post("/{run_id}/steps/{agent}/retry", status_code=202)
+async def retry_step(
+    run_id: str, agent: AgentId,
+    caller: Caller = Depends(current_caller), db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Re-queues the phase holding `agent`. Steps that already succeeded are skipped, so their files stay."""
+    stopped_here = (
+        select(RunStep.id)
+        .where(RunStep.run_id == Run.id, RunStep.agent == agent, RunStep.status.in_(["failed", "started"]))
+        .exists()
+    )
+    result = await db.execute(
+        update(Run)
+        .where(Run.id == run_id, Run.workspace_id == caller.workspace_id, Run.status == "failed", stopped_here)
+        .values(status="running", phase=PHASE_OF_AGENT[agent], locked_by=None, locked_until=None, attempts=0)
+        .returning(Run.id)
+    )
+    if result.scalar_one_or_none() is not None:
+        await db.commit()
+        return {"status": "resuming"}
+
+    run = await _owned_run(db, run_id, caller)
+    if run.status != "failed":
+        raise AppError(409, "run_not_failed", "Only a failed run can be retried.", {"status": run.status})
+    raise AppError(409, "step_not_failed", "That step didn’t fail. Retry the step the run stopped at.", {"agent": agent})
 
 
 async def _check_rate_limit(db: AsyncSession, caller: Caller) -> None:
