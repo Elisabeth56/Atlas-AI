@@ -18,8 +18,6 @@ from app.schemas import (
     MatchedDataset,
     MetadataAnalystOutput,
     PlannerOutput,
-    QAOutput,
-    ValidationCheckOut,
     WritebackOutput,
 )
 
@@ -75,7 +73,7 @@ _STG_STRIPE_PAYMENTS = GeneratedFile(
     kind="dbt_model",
     filename="models/staging/stg_stripe_payments.sql",
     content="""with source as (
-    select * from {{ source('stripe', 'raw_stripe_payments') }}
+    select * from {{ source('raw', 'stripe_payments') }}
 )
 
 select
@@ -93,13 +91,12 @@ _STG_POSTGRES_CUSTOMERS = GeneratedFile(
     kind="dbt_model",
     filename="models/staging/stg_postgres_customers.sql",
     content="""with source as (
-    select * from {{ source('postgres', 'customers') }}
+    select * from {{ source('public', 'customers') }}
 )
 
 select
     customer_id,
-    customer_name,
-    email,
+    md5(email) as email_hash,
     signup_at,
     plan_tier
 from source
@@ -116,13 +113,12 @@ customers as (
     select * from {{ ref('stg_postgres_customers') }}
 ),
 orders as (
-    select * from {{ source('postgres', 'orders') }}
+    select * from {{ source('public', 'orders') }}
 )
 
 select
     o.order_id,
     o.customer_id,
-    c.customer_name,
     c.plan_tier,
     p.amount_usd,
     p.currency,
@@ -140,7 +136,7 @@ _ADHOC_SQL = GeneratedFile(
     date_trunc('day', created_at) as day,
     count(*) as orders,
     sum(amount_usd) as revenue_usd
-from fct_customer_revenue
+from {{ ref('fct_customer_revenue') }}
 group by 1
 order by 1 desc
 limit 30;
@@ -190,45 +186,6 @@ DATA_ENGINEER_OUTPUT = DataEngineerOutput(
         _CONFIG_FILE,
     ],
     summary="generated 3 models, 1 ad-hoc query, 1 test suite, 1 config",
-)
-
-_QA_CHECKS = [
-    ValidationCheckOut(
-        name="Schema compatibility",
-        passed=True,
-        message="fct_customer_revenue matches the registered DataHub schema.",
-        severity="info",
-    ),
-    ValidationCheckOut(
-        name="SQL lint",
-        passed=True,
-        message="No syntax or style violations found.",
-        severity="info",
-    ),
-    ValidationCheckOut(
-        name="Not-null constraints",
-        passed=True,
-        message="order_id and customer_id pass not-null checks on sample data.",
-        severity="info",
-    ),
-    ValidationCheckOut(
-        name="PII exposure",
-        passed=False,
-        message="card_last4 is tagged PII in DataHub and is not currently masked in this model.",
-        severity="critical",
-    ),
-    ValidationCheckOut(
-        name="Missing metadata",
-        passed=True,
-        message="All columns have descriptions synced from DataHub glossary.",
-        severity="warning",
-    ),
-]
-
-QA_OUTPUT = QAOutput(
-    checks=_QA_CHECKS,
-    passed=False,
-    summary="flagged 1 PII column · masking required",
 )
 
 _DATA_DICTIONARY = GeneratedFile(
@@ -289,7 +246,6 @@ def mock_llm_fixtures() -> dict[str, object]:
         "PlannerOutput": PLANNER_OUTPUT,
         "MetadataAnalystOutput": METADATA_ANALYST_OUTPUT,
         "DataEngineerOutput": DATA_ENGINEER_OUTPUT,
-        "QAOutput": QA_OUTPUT,
         "DocumentationOutput": DOCUMENTATION_OUTPUT,
         "WritebackOutput": WRITEBACK_OUTPUT,
     }

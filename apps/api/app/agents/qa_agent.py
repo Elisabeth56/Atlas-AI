@@ -1,224 +1,165 @@
-"""QA agent — validates the Data Engineer's generated artifacts.
+"""QA agent: checks generated files with code, not a model, so the same files always get the same verdict.
 
-Unlike the other agents, QA does NOT ask an LLM to judge correctness —
-validation results need to be deterministic and reproducible, not subject
-to model sampling variance. Instead this agent runs real checks:
-SQL parseability (sqlparse), PII-column exposure (cross-referenced
-against DataHub field descriptions/tags), not-null test coverage for
-primary/foreign keys, and metadata completeness (DataHub glossary sync).
+Five checks, in the order the report shows them:
+columns resolve to DataHub · SQL parses · PII stays masked · keys are tested · metadata complete.
+Ground truth is the schema DataHub returns now, not the column list the metadata analyst
+(an LLM) wrote down, which could itself be wrong.
 """
 from __future__ import annotations
 
-import re
+import asyncio
 
-import sqlparse
+import yaml
 
 from app.agents.base import Agent, AgentResult, RunContext
+from app.qa.grounding import ModelCheck, Table, check_models, parse_errors, table_key
 from app.schemas import GeneratedFile, MatchedDataset, ValidationCheckOut
 
-_MASK_FN_PATTERN = re.compile(r"(md5|sha256|sha1|mask|hash|left)\s*\(", re.IGNORECASE)
+MAX_LISTED = 4  # findings named in one message before "and N more"
 
 
 class QAAgent(Agent):
     name = "qa"
 
     async def run(self, ctx: RunContext) -> AgentResult:
-        metadata_output = ctx.prior("metadata_analyst")
-        data_engineer_output = ctx.prior("data_engineer")
+        datasets = [MatchedDataset.model_validate(d) for d in ctx.prior("metadata_analyst")["matched_datasets"]]
+        files = [GeneratedFile.model_validate(f) for f in ctx.prior("data_engineer")["files"]]
+        models = {f.filename: f.content for f in files if f.kind in ("dbt_model", "sql")}
 
-        matched_datasets = [
-            MatchedDataset.model_validate(d)
-            for d in metadata_output["matched_datasets"]
-        ]
-        files = [
-            GeneratedFile.model_validate(f) for f in data_engineer_output["files"]
-        ]
-
-        await ctx.emit_log("running schema-compatibility checks")
-        checks: list[ValidationCheckOut] = []
-        checks.append(await self._schema_compatibility_check(ctx, matched_datasets, files))
-
-        await ctx.emit_log("linting generated SQL")
-        checks.append(self._sql_lint_check(files))
-        checks.append(self._not_null_test_check(files))
-
-        pii_check = await self._pii_exposure_check(ctx, matched_datasets, files)
-        checks.append(pii_check)
-        if not pii_check.passed:
-            await ctx.emit_log("flagged 1 PII column · masking required")
+        if datasets:
+            await ctx.emit_log("reading source schemas from DataHub")
+            catalog, empty = await _load_catalog(ctx, datasets)
+            await ctx.emit_log("resolving every column against the catalog")
+            results = check_models(models, catalog)
+            checks = [
+                _columns_check(results),
+                _parse_check(results),
+                _pii_check(results),
+                _key_tests_check(files),
+                _metadata_check(empty),
+            ]
         else:
-            await ctx.emit_log("no unmasked PII columns detected")
+            await ctx.emit_log("no catalog datasets: checking syntax and tests only")
+            checks = [
+                _check("Columns resolve to DataHub", False, "warning",
+                       "Ungrounded: this run started fresh, so no column could be checked against DataHub."),
+                _parse_check_ungrounded(parse_errors(models)),
+                _check("PII stays masked", False, "warning",
+                       "Without catalog datasets there are no PII tags to check against."),
+                _key_tests_check(files),
+            ]
 
-        checks.append(self._metadata_completeness_check(matched_datasets))
-
-        passed = all(c.passed for c in checks)
-        critical_failures = [c for c in checks if not c.passed and c.severity == "critical"]
-        summary = (
-            f"{len(critical_failures)} critical issue(s) found"
-            if critical_failures
-            else "all checks passed"
+        critical = [c for c in checks if not c.passed and c.severity == "critical"]
+        summary = f"{len(critical)} critical issue(s) found" if critical else "no critical issues"
+        await ctx.emit_log(summary)
+        return AgentResult(
+            summary=summary,
+            data={"checks": [c.model_dump() for c in checks], "passed": all(c.passed for c in checks), "summary": summary},
         )
 
-        output_dict = {
-            "checks": [c.model_dump() for c in checks],
-            "passed": passed,
-            "summary": summary,
-        }
-        return AgentResult(summary=summary, data=output_dict)
 
-    async def _schema_compatibility_check(
-        self,
-        ctx: RunContext,
-        matched_datasets: list[MatchedDataset],
-        files: list[GeneratedFile],
-    ) -> ValidationCheckOut:
-        known_columns: set[str] = set()
-        for ds in matched_datasets:
-            known_columns.update(ds.columns)
-            schema = await ctx.datahub.get_schema(ds.urn)
-            known_columns.update(f["name"] for f in schema.get("fields", []) if f.get("name"))
-
-        # Real check (deliberately conservative, not a full SQL parser):
-        # every dbt_model/sql file must reference at least one column name
-        # that actually exists in the matched DataHub schemas. Full
-        # dialect-aware column-resolution (accounting for CTEs, aliases,
-        # computed columns) is out of scope for this QA pass and
-        # would need a real SQL AST — see README "Future Improvements".
-        model_files = [f for f in files if f.kind in ("dbt_model", "sql")]
-        ungrounded: list[str] = []
-        for f in model_files:
-            content_lower = f.content.lower()
-            if known_columns and not any(
-                col.lower() in content_lower for col in known_columns
-            ):
-                ungrounded.append(f.filename)
-
-        if ungrounded:
-            return ValidationCheckOut(
-                name="Schema compatibility",
-                passed=False,
-                message=(
-                    f"{', '.join(ungrounded)} reference no columns found in "
-                    "the matched DataHub schemas — possible hallucinated fields."
-                ),
-                severity="critical",
-            )
-        return ValidationCheckOut(
-            name="Schema compatibility",
-            passed=True,
-            message="All generated models reference columns present in the matched DataHub schemas.",
-            severity="info",
+async def _load_catalog(ctx: RunContext, datasets: list[MatchedDataset]) -> tuple[dict, list[str]]:
+    """One schema fetch per dataset, all at once. Returns the catalog and datasets with no fields."""
+    schemas = await asyncio.gather(*(ctx.datahub.get_schema(d.urn) for d in datasets))
+    catalog: dict[tuple[str, str], Table] = {}
+    empty: list[str] = []
+    for ds, schema in zip(datasets, schemas, strict=True):
+        fields = [f for f in schema.get("fields", []) if f.get("name")]
+        if not fields:
+            empty.append(ds.name)
+        catalog[table_key(ds.name)] = Table(
+            columns=[f["name"].lower() for f in fields],
+            pii={f["name"].lower() for f in fields if _is_pii(f)},
         )
+    return catalog, empty
 
-    def _sql_lint_check(self, files: list[GeneratedFile]) -> ValidationCheckOut:
-        issues: list[str] = []
-        for f in files:
-            if f.kind not in ("dbt_model", "sql"):
-                continue
-            if not f.content.strip():
-                issues.append(f"{f.filename} is empty")
-                continue
-            try:
-                parsed = sqlparse.parse(f.content)
-                if not parsed or not any(str(s).strip() for s in parsed):
-                    issues.append(f"{f.filename} did not parse as valid SQL")
-            except Exception as exc:  # sqlparse rarely raises, but be defensive
-                issues.append(f"{f.filename} failed to parse: {exc}")
 
-        if issues:
-            return ValidationCheckOut(
-                name="SQL lint",
-                passed=False,
-                message="; ".join(issues),
-                severity="warning",
-            )
-        return ValidationCheckOut(
-            name="SQL lint",
-            passed=True,
-            message="No syntax or style violations found.",
-            severity="info",
-        )
+def _is_pii(field: dict) -> bool:
+    tags = " ".join(str(t) for t in field.get("tags") or [])
+    return "pii" in (field.get("description") or "").lower() or "pii" in tags.lower()
 
-    def _not_null_test_check(self, files: list[GeneratedFile]) -> ValidationCheckOut:
-        test_files = [f for f in files if f.kind == "test"]
-        combined = "\n".join(f.content for f in test_files)
-        has_not_null = "not_null" in combined
-        has_unique = "unique" in combined
 
-        if test_files and has_not_null and has_unique:
-            return ValidationCheckOut(
-                name="Not-null constraints",
-                passed=True,
-                message="Primary key columns carry unique and not_null tests.",
-                severity="info",
-            )
-        return ValidationCheckOut(
-            name="Not-null constraints",
-            passed=False,
-            message="Generated test suite is missing unique/not_null coverage on key columns.",
-            severity="warning",
-        )
+def _columns_check(results: list[ModelCheck]) -> ValidationCheckOut:
+    problems = []
+    for r in results:
+        name = _short(r.filename)
+        if r.unknown_tables:
+            problems.append(f"{name} reads {', '.join(r.unknown_tables)}, which isn't in the catalog")
+        if r.unresolved_columns:
+            cols = ", ".join(r.unresolved_columns)
+            problems.append(f"{name}: {cols} {'doesn’t' if len(r.unresolved_columns) == 1 else 'don’t'} exist in any source it reads")
+        if r.blocked_by:
+            problems.append(f"{name} couldn’t be checked because {', '.join(r.blocked_by)} failed")
+    if problems:
+        return _check("Columns resolve to DataHub", False, "critical", _listed(problems))
+    return _check("Columns resolve to DataHub", True, "info",
+                  f"Every column in {len(results)} file(s) traces back to a DataHub dataset.")
 
-    async def _pii_exposure_check(
-        self,
-        ctx: RunContext,
-        matched_datasets: list[MatchedDataset],
-        files: list[GeneratedFile],
-    ) -> ValidationCheckOut:
-        # Deliberately field-level only: a dataset-level "pii" tag (e.g. on
-        # raw.stripe_payments) means *some* column in that dataset is
-        # sensitive, not that every column is — treating the dataset tag as
-        # blanket coverage would flag amount_cents, currency, created_at,
-        # etc. as PII just because they share a table with card_last4.
-        pii_columns: set[str] = set()
-        for ds in matched_datasets:
-            schema = await ctx.datahub.get_schema(ds.urn)
-            for field in schema.get("fields", []):
-                description = (field.get("description") or "").lower()
-                if "pii" in description:
-                    pii_columns.add(field["name"])
 
-        exposed: list[str] = []
-        model_files = [f for f in files if f.kind in ("dbt_model", "sql")]
-        for col in pii_columns:
-            for f in model_files:
-                if col in f.content and not _MASK_FN_PATTERN.search(f.content):
-                    exposed.append(col)
-                    break
+def _parse_check(results: list[ModelCheck]) -> ValidationCheckOut:
+    broken = [f"{_short(r.filename)} doesn’t parse ({r.parse_error})" for r in results if r.parse_error]
+    if broken:
+        return _check("SQL parses", False, "critical", _listed(broken))
+    unverifiable = [f"{_short(r.filename)} {r.unverifiable}" for r in results if r.unverifiable]
+    if unverifiable:
+        return _check("SQL parses", False, "warning", _listed(unverifiable))
+    return _check("SQL parses", True, "info", f"All {len(results)} SQL file(s) parse.")
 
-        if exposed:
-            return ValidationCheckOut(
-                name="PII exposure",
-                passed=False,
-                message=(
-                    f"{', '.join(sorted(set(exposed)))} "
-                    f"{'is' if len(set(exposed)) == 1 else 'are'} tagged PII in DataHub "
-                    "and not currently masked in the generated models."
-                ),
-                severity="critical",
-            )
-        return ValidationCheckOut(
-            name="PII exposure",
-            passed=True,
-            message="No unmasked PII columns detected in generated models.",
-            severity="info",
-        )
 
-    def _metadata_completeness_check(
-        self, matched_datasets: list[MatchedDataset]
-    ) -> ValidationCheckOut:
-        missing = [ds.name for ds in matched_datasets if not ds.columns]
-        if missing:
-            return ValidationCheckOut(
-                name="Missing metadata",
-                passed=False,
-                message=f"No column metadata available for: {', '.join(missing)}.",
-                severity="warning",
-            )
-        return ValidationCheckOut(
-            name="Missing metadata",
-            passed=True,
-            message="All matched datasets have column-level metadata from DataHub.",
-            severity="info",
-        )
+def _parse_check_ungrounded(errors: dict[str, str]) -> ValidationCheckOut:
+    if errors:
+        return _check("SQL parses", False, "critical", _listed([f"{_short(f)}: {e}" for f, e in errors.items()]))
+    return _check("SQL parses", True, "info", "All SQL files parse.")
 
+
+def _pii_check(results: list[ModelCheck]) -> ValidationCheckOut:
+    leaks = [
+        f"{e.column} reaches {_short(r.filename)}’s output unmasked (line {e.line})"
+        for r in results for e in r.exposed_pii
+    ]
+    if leaks:
+        return _check("PII stays masked", False, "critical",
+                      _listed(leaks) + ". Hash with md5() or drop the column.")
+    return _check("PII stays masked", True, "info", "No column tagged PII in DataHub reaches an output unmasked.")
+
+
+def _key_tests_check(files: list[GeneratedFile]) -> ValidationCheckOut:
+    """Every mart needs one column with both unique and not_null tests."""
+    marts = [_short(f.filename).removesuffix(".sql") for f in files if f.kind == "dbt_model" and "/marts/" in f"/{f.filename}"]
+    tested: set[str] = set()
+    for f in files:
+        if f.kind != "test":
+            continue
+        try:
+            doc = yaml.safe_load(f.content) or {}
+        except yaml.YAMLError:
+            return _check("Keys have unique and not_null tests", False, "warning", f"{_short(f.filename)} isn’t valid YAML.")
+        for model in doc.get("models") or []:
+            for col in model.get("columns") or []:
+                names = {t if isinstance(t, str) else next(iter(t)) for t in (col.get("tests") or col.get("data_tests") or [])}
+                if {"unique", "not_null"} <= names:
+                    tested.add(model.get("name"))
+    missing = [m for m in marts if m not in tested]
+    if missing:
+        return _check("Keys have unique and not_null tests", False, "warning",
+                      f"No column in {', '.join(missing)} has both unique and not_null tests.")
+    return _check("Keys have unique and not_null tests", True, "info", "Every mart has a key with unique and not_null tests.")
+
+
+def _metadata_check(empty: list[str]) -> ValidationCheckOut:
+    if empty:
+        return _check("Metadata complete", False, "warning", f"DataHub returned no columns for {', '.join(empty)}.")
+    return _check("Metadata complete", True, "info", "Every matched dataset has column metadata in DataHub.")
+
+
+def _check(name: str, passed: bool, severity: str, message: str) -> ValidationCheckOut:
+    return ValidationCheckOut(name=name, passed=passed, severity=severity, message=message)
+
+
+def _listed(items: list[str]) -> str:
+    shown = "; ".join(items[:MAX_LISTED])
+    return shown + (f"; and {len(items) - MAX_LISTED} more" if len(items) > MAX_LISTED else "")
+
+
+def _short(filename: str) -> str:
+    return filename.rsplit("/", 1)[-1]

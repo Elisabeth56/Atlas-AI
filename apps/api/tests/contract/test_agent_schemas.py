@@ -14,7 +14,6 @@ from app.schemas import (
     DocumentationOutput,
     MetadataAnalystOutput,
     PlannerOutput,
-    QAOutput,
     WritebackOutput,
 )
 
@@ -37,7 +36,6 @@ def test_every_demo_fixture_validates_against_its_schema() -> None:
         "PlannerOutput": PlannerOutput,
         "MetadataAnalystOutput": MetadataAnalystOutput,
         "DataEngineerOutput": DataEngineerOutput,
-        "QAOutput": QAOutput,
         "DocumentationOutput": DocumentationOutput,
         "WritebackOutput": WritebackOutput,
     }
