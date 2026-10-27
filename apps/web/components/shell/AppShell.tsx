@@ -7,7 +7,7 @@ import { Menu } from "lucide-react";
 import { CommandPalette } from "@/components/shell/CommandPalette";
 import { Logo } from "@/components/shell/Logo";
 import { Sidebar } from "@/components/shell/Sidebar";
-import { useRuns } from "@/hooks/useRuns";
+import { RunsContext, useRuns } from "@/hooks/useRuns";
 
 function typing(target: EventTarget | null) {
   const el = target as HTMLElement | null;
@@ -19,7 +19,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const reduced = useReducedMotion();
-  const { runs, error } = useRuns();
+  const runsState = useRuns();
+  const { runs, error } = runsState;
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -71,7 +72,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Logo size={22} />
           <span className="text-[15px] font-semibold tracking-[-0.02em] text-ink">Atlas</span>
         </header>
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+          <RunsContext.Provider value={runsState}>{children}</RunsContext.Provider>
+        </main>
       </div>
 
       <AnimatePresence>

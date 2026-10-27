@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { HAS_BACKEND, listRuns } from "@/lib/api";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import type { RunListItem } from "@/lib/types";
@@ -59,4 +59,11 @@ export function useRuns() {
   }, []);
 
   return { runs, error };
+}
+
+/** One subscription for the whole app, shared by the sidebar, the palette and the new-run page. */
+export const RunsContext = createContext<ReturnType<typeof useRuns>>({ runs: null, error: null });
+
+export function useRunsList() {
+  return useContext(RunsContext);
 }

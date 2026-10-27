@@ -5,10 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Eyebrow } from "@/components/ui/Eyebrow";
+import { Photo } from "@/components/ui/Photo";
+import { useRunsList } from "@/hooks/useRuns";
 import { createRun } from "@/lib/api";
-import { DEMO_PROMPT } from "@/lib/pipeline";
 
-const EXAMPLES = [DEMO_PROMPT, "Daily orders per plan tier, with revenue in dollars"];
+const EXAMPLES = ["Customer revenue from Stripe and Postgres events", "Daily orders per plan tier, with revenue in dollars"];
 const DRAFT_KEY = "atlas.draft";
 
 export default function NewRunPage() {
@@ -17,6 +18,8 @@ export default function NewRunPage() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+  const { runs } = useRunsList();
+  const firstRun = runs !== null && runs.length === 0;
 
   // an unsent prompt survives a reload or a wander to another run
   useEffect(() => {
@@ -30,6 +33,11 @@ export default function NewRunPage() {
     try {
       localStorage.setItem(DRAFT_KEY, value);
     } catch {}
+  };
+
+  const pick = (example: string) => {
+    edit(example);
+    field.current?.focus();
   };
 
   async function start() {
@@ -107,22 +115,46 @@ export default function NewRunPage() {
         </p>
       )}
 
-      <div className="flex flex-col gap-2">
-        <span className="text-caption text-ink-3">or start from one of these</span>
-        {EXAMPLES.map((example) => (
-          <button
-            key={example}
-            type="button"
-            onClick={() => {
-              edit(example);
-              field.current?.focus();
-            }}
-            className="rounded-md bg-surface-2 px-4 py-3 text-left text-small text-ink-2 transition-colors duration-200 hover:text-ink"
-          >
-            {example}
-          </button>
-        ))}
-      </div>
+      {firstRun ? (
+        <section aria-label="No runs yet" className="grid gap-5 rounded-lg bg-surface-1 p-5 hairline sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+          <Photo
+            src="/images/schema-desk.webp"
+            alt="A printed database schema under a desk lamp"
+            position="50% 65%"
+            className="h-[220px] sm:h-full sm:min-h-[260px]"
+            sizes="(min-width: 640px) 320px, 100vw"
+          />
+          <div className="flex flex-col gap-4 py-1">
+            <h2 className="text-[22px] leading-[1.25] font-semibold tracking-[-0.02em] text-ink">No runs yet</h2>
+            <p className="text-small text-ink-2">
+              Describe a pipeline and Atlas will find the sources in your catalog. Start from one of these:
+            </p>
+            <Starters onPick={pick} />
+          </div>
+        </section>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <span className="text-caption text-ink-3">or start from one of these</span>
+          <Starters onPick={pick} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Starters({ onPick }: { onPick: (prompt: string) => void }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {EXAMPLES.map((example) => (
+        <button
+          key={example}
+          type="button"
+          onClick={() => onPick(example)}
+          className="rounded-[14px] bg-surface-2 px-3.5 py-3 text-left text-small text-ink transition-colors duration-200 hover:bg-surface-2/70"
+        >
+          {example}
+        </button>
+      ))}
     </div>
   );
 }

@@ -5,6 +5,9 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { FilmStrip } from "@/components/agents/FilmStrip";
 import { DarkroomLog } from "@/components/run/DarkroomLog";
+import { RunNotices } from "@/components/run/RunNotices";
+import { RunSkeleton } from "@/components/run/RunSkeleton";
+import { LostRun } from "@/components/states/LostRun";
 import { SourcesCheckpoint } from "@/components/run/SourcesCheckpoint";
 import { WritebackStage } from "@/components/run/WritebackStage";
 import { buttonStyles } from "@/components/ui/Button";
@@ -24,6 +27,9 @@ export default function RunPage() {
   const prompt = run?.prompt ?? search.get("prompt") ?? DEMO_PROMPT;
 
   useTabTitle(frames, run);
+
+  if (stream.notFound) return <LostRun />;
+  if (stream.live && !run && !stream.connectionError) return <RunSkeleton />;
 
   return (
     <div className="flex flex-col gap-[22px] px-4 pt-5 pb-[60vh] sm:px-7 md:pb-8">
@@ -47,7 +53,11 @@ export default function RunPage() {
 
       <FilmStrip frames={frames} />
 
-      {run && atWriteback(run) ? (
+      {run && <RunNotices run={run} onChange={stream.refresh} />}
+
+      {run?.status === "failed" ? (
+        <DarkroomLog run={run} />
+      ) : run && atWriteback(run) ? (
         <>
           <WritebackStage run={run} onChange={stream.refresh} />
           <DarkroomLog run={run} />
@@ -96,12 +106,7 @@ function Panel({ run, frames, onChange }: { run: Run | null; frames: Frame[]; on
         </section>
       );
     case "failed":
-      return (
-        <section className="rounded-lg bg-critical-wash p-7">
-          <h2 className="text-heading text-ink">A step failed</h2>
-          <p className="mt-2 max-w-[60ch] text-body text-ink-2">The darkroom log shows what went wrong. Everything before that step is saved.</p>
-        </section>
-      );
+      return null; // RunNotices explains the failure and offers the retry
     default: {
       const now = frames.find((f) => f.state === "developing");
       return (
