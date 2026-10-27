@@ -34,6 +34,23 @@ class ProviderConfig:
     model: str
 
 
+@dataclass(frozen=True)
+class CallRecord:
+    """What one HTTP call cost and how it ended; `fallback` means an earlier provider failed this call."""
+
+    provider: str
+    model: str
+    prompt_id: str
+    latency_ms: int
+    outcome: str  # ok | rate_limited | network_error | http_<status>
+    fallback: bool
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+
+
+OnCall = Callable[[CallRecord], Awaitable[None]]
+
+
 class ProviderUnavailable(Exception):
     """This provider can't serve the call right now; the next one should try."""
 
@@ -61,6 +78,7 @@ class ProviderChain(LLMProvider):
         timeout_seconds: float = 60.0,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        on_call: OnCall | None = None,
     ) -> None:
         if not providers:
             raise ValueError("ProviderChain needs at least one provider")
@@ -68,6 +86,7 @@ class ProviderChain(LLMProvider):
         self._timeout = timeout_seconds
         self._transport = transport
         self._sleep = sleep
+        self._on_call = on_call
 
     async def complete(self, *, prompt_id: str, user_prompt: str, schema: type[T]) -> T:
         messages = [
@@ -78,7 +97,7 @@ class ProviderChain(LLMProvider):
         async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as client:
             for provider in self._providers:
                 try:
-                    return await self._complete_with(client, provider, prompt_id, messages, schema)
+                    return await self._complete_with(client, provider, prompt_id, messages, schema, bool(failures))
                 except ProviderUnavailable as exc:
                     failures.append(f"{provider.name}: {exc}")
         raise LLMError(f"every LLM provider failed ({'; '.join(failures)})")
@@ -90,8 +109,9 @@ class ProviderChain(LLMProvider):
         prompt_id: str,
         messages: list[dict],
         schema: type[T],
+        fallback: bool,
     ) -> T:
-        raw = await self._call(client, provider, prompt_id, messages)
+        raw = await self._call(client, provider, prompt_id, messages, fallback)
         try:
             return schema.model_validate_json(raw)
         except ValidationError as exc:
@@ -105,7 +125,7 @@ class ProviderChain(LLMProvider):
                     "Return the corrected JSON object only.",
                 },
             ]
-            raw = await self._call(client, provider, prompt_id, repair)
+            raw = await self._call(client, provider, prompt_id, repair, fallback)
             try:
                 return schema.model_validate_json(raw)
             except ValidationError as exc2:
@@ -114,7 +134,8 @@ class ProviderChain(LLMProvider):
                 ) from exc2
 
     async def _call(
-        self, client: httpx.AsyncClient, provider: ProviderConfig, prompt_id: str, messages: list[dict]
+        self, client: httpx.AsyncClient, provider: ProviderConfig, prompt_id: str, messages: list[dict],
+        fallback: bool,
     ) -> str:
         """One chat completion. Raises ProviderUnavailable on 429, 5xx, other errors or timeouts."""
         for attempt in range(2):
@@ -131,11 +152,11 @@ class ProviderChain(LLMProvider):
                     },
                 )
             except httpx.TransportError as exc:
-                _log(provider, prompt_id, started, outcome="network_error")
+                await self._record(provider, prompt_id, started, fallback, outcome="network_error")
                 raise ProviderUnavailable(type(exc).__name__) from exc
 
             if resp.status_code == 429:
-                _log(provider, prompt_id, started, outcome="rate_limited")
+                await self._record(provider, prompt_id, started, fallback, outcome="rate_limited")
                 wait = _retry_after(resp)
                 if attempt == 0 and wait is not None and wait <= MAX_RETRY_AFTER_SECONDS:
                     await self._sleep(wait)
@@ -143,17 +164,41 @@ class ProviderChain(LLMProvider):
                 raise ProviderUnavailable("rate limited")
 
             if resp.status_code != 200:
-                _log(provider, prompt_id, started, outcome=f"http_{resp.status_code}")
+                await self._record(provider, prompt_id, started, fallback, outcome=f"http_{resp.status_code}")
                 raise ProviderUnavailable(f"HTTP {resp.status_code}")
 
             body = resp.json()
             usage = body.get("usage") or {}
-            _log(
-                provider, prompt_id, started, outcome="ok",
+            await self._record(
+                provider, prompt_id, started, fallback, outcome="ok",
                 tokens_in=usage.get("prompt_tokens"), tokens_out=usage.get("completion_tokens"),
             )
             return body["choices"][0]["message"]["content"]
         raise ProviderUnavailable("rate limited")
+
+
+    async def _record(
+        self,
+        provider: ProviderConfig,
+        prompt_id: str,
+        started: float,
+        fallback: bool,
+        *,
+        outcome: str,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
+    ) -> None:
+        record = CallRecord(
+            provider=provider.name, model=provider.model, prompt_id=prompt_id,
+            latency_ms=int((time.monotonic() - started) * 1000), outcome=outcome, fallback=fallback,
+            tokens_in=tokens_in, tokens_out=tokens_out,
+        )
+        logger.info(
+            "llm_call provider=%s model=%s prompt=%s tokens_in=%s tokens_out=%s latency_ms=%d outcome=%s",
+            record.provider, record.model, prompt_id, tokens_in, tokens_out, record.latency_ms, outcome,
+        )
+        if self._on_call:
+            await self._on_call(record)
 
 
 def _retry_after(resp: httpx.Response) -> float | None:
@@ -168,20 +213,4 @@ def _json_instruction(schema: type[BaseModel]) -> str:
     return (
         "Respond with a single JSON object and nothing else: no markdown fences, no commentary. "
         f"It must match this JSON schema:\n{shape}"
-    )
-
-
-def _log(
-    provider: ProviderConfig,
-    prompt_id: str,
-    started: float,
-    *,
-    outcome: str,
-    tokens_in: int | None = None,
-    tokens_out: int | None = None,
-) -> None:
-    logger.info(
-        "llm_call provider=%s model=%s prompt=%s tokens_in=%s tokens_out=%s latency_ms=%d outcome=%s",
-        provider.name, provider.model, prompt_id, tokens_in, tokens_out,
-        (time.monotonic() - started) * 1000, outcome,
     )

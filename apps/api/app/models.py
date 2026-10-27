@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, SmallInteger, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -104,6 +104,24 @@ class ValidationReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     run: Mapped[Run] = relationship(back_populates="validation_report")
+
+
+class LlmCall(Base):
+    """One HTTP call to an LLM provider, failed ones included."""
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("runs.id", ondelete="CASCADE"))
+    agent: Mapped[str] = mapped_column(String(32))
+    provider: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_id: Mapped[str] = mapped_column(Text)
+    tokens_in: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_out: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    outcome: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class Workspace(Base):
