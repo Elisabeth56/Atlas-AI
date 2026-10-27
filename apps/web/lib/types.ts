@@ -78,13 +78,16 @@ export interface MatchedDataset {
 
 export type ArtifactKind = "dbt_model" | "sql" | "test" | "doc" | "config";
 
-export interface ArtifactBundle {
+export interface ArtifactFile {
+  filename: string;
+  kind: ArtifactKind;
+  source_agent: string;
+  content: string;
+}
+
+export interface ArtifactFiles {
   run_id: string;
-  dbt_models: string;
-  sql: string;
-  tests: string;
-  docs: string;
-  configs: string;
+  files: ArtifactFile[];
 }
 
 export type ValidationSeverity = "info" | "warning" | "critical";

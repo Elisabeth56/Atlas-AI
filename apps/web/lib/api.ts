@@ -1,4 +1,4 @@
-import type { AgentId, ArtifactBundle, MatchedDataset, Run, RunListItem, ValidationReport } from "@/lib/types";
+import type { AgentId, ArtifactFiles, MatchedDataset, Run, RunListItem, ValidationReport } from "@/lib/types";
 import { PIPELINE } from "@/lib/pipeline";
 import { toApiError } from "@/lib/errors";
 import { accessToken } from "@/lib/supabase/client";
@@ -67,7 +67,7 @@ export async function getRun(requestId: string): Promise<Run> {
 }
 
 // GET /api/runs/{id}/artifacts
-export async function getArtifacts(requestId: string): Promise<ArtifactBundle> {
+export async function getArtifacts(requestId: string): Promise<ArtifactFiles> {
   if (HAS_BACKEND) return http(`/api/runs/${requestId}/artifacts`);
   await delay(400);
   return mockArtifacts(requestId);
@@ -213,68 +213,22 @@ function mockRun(requestId: string): Run {
   };
 }
 
-function mockArtifacts(requestId: string): ArtifactBundle {
+function mockArtifacts(requestId: string): ArtifactFiles {
+  const file = (filename: string, kind: ArtifactFiles["files"][number]["kind"], source_agent: string, content: string) => ({
+    filename, kind, source_agent, content,
+  });
   return {
     run_id: requestId,
-    dbt_models: `-- models/marts/fct_revenue.sql
-with orders as (
-    select * from {{ ref('stg_orders') }}
-),
-customers as (
-    select * from {{ ref('stg_customers') }}
-)
-
-select
-    o.order_id,
-    o.customer_id,
-    c.customer_name,
-    o.order_total,
-    o.created_at
-from orders o
-left join customers c on o.customer_id = c.customer_id`,
-    sql: `-- ad-hoc validation query
-select
-    date_trunc('day', created_at) as day,
-    count(*) as orders,
-    sum(order_total) as revenue
-from fct_revenue
-group by 1
-order by 1 desc
-limit 30;`,
-    tests: `# tests/schema.yml
-version: 2
-models:
-  - name: fct_revenue
-    columns:
-      - name: order_id
-        tests: [unique, not_null]
-      - name: customer_id
-        tests: [not_null]
-      - name: order_total
-        tests:
-          - dbt_utils.accepted_range:
-              min_value: 0`,
-    docs: `# fct_revenue
-
-Grain: one row per order.
-
-| Column | Description |
-|---|---|
-| order_id | Primary key |
-| customer_id | FK to dim_customer |
-| customer_name | Denormalized for reporting |
-| order_total | Order value in USD |
-| created_at | Order timestamp (UTC) |
-
-Source: stg_orders (Stripe), stg_customers (Postgres).
-Owner: data-platform@atlas.ai`,
-    configs: `# dbt_project.yml (excerpt)
-models:
-  atlas:
-    marts:
-      +materialized: table
-      +schema: analytics
-      +tags: ['revenue', 'atlas-generated']`,
+    files: [
+      file("models/staging/stg_stripe_payments.sql", "dbt_model", "data_engineer",
+        "with source as (\n    select * from {{ source('raw', 'stripe_payments') }}\n)\n\nselect\n    payment_id,\n    customer_id,\n    amount_cents / 100.0 as amount_usd,\n    currency,\n    card_last4,\n    created_at\nfrom source\n"),
+      file("models/marts/fct_customer_revenue.sql", "dbt_model", "data_engineer",
+        "select\n    o.order_id,\n    o.customer_id,\n    p.amount_usd,\n    o.created_at\nfrom {{ source('public', 'orders') }} o\nleft join {{ ref('stg_stripe_payments') }} p on o.payment_id = p.payment_id\n"),
+      file("models/marts/schema.yml", "test", "data_engineer",
+        "version: 2\nmodels:\n  - name: fct_customer_revenue\n    columns:\n      - name: order_id\n        tests: [unique, not_null]\n"),
+      file("docs/fct_customer_revenue.md", "doc", "documentation", "# fct_customer_revenue\n\nOne row per order.\n"),
+      file("dbt_project.yml", "config", "data_engineer", "models:\n  atlas:\n    marts:\n      +materialized: table\n"),
+    ],
   };
 }
 

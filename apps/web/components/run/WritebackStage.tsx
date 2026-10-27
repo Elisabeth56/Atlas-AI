@@ -39,13 +39,15 @@ export function WritebackStage({ run, onChange }: { run: Run; onChange: () => vo
   );
 }
 
-function QaReport({
+export function QaReport({
   run,
   report,
   error,
   onReport,
   onChange,
+  canApply = true,
 }: {
+  canApply?: boolean;
   run: Run;
   report: ValidationReport | null;
   error: string | null;
@@ -105,6 +107,7 @@ function QaReport({
             <Finding key={c.name} severity={severityOf(c)} name={c.name}>
               {c.message}
               {c.name === "PII stays masked" &&
+                canApply &&
                 pending.map((fix) => (
                   <FixPreview key={fix.id} run={run} fix={fix} busy={applying === fix.id} onApply={() => apply(fix)} />
                 ))}

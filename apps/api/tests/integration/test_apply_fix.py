@@ -92,3 +92,14 @@ async def test_unknown_fix_is_404(client):
     response = await client.post(f"/api/runs/{run_id}/fixes/nope/apply")
 
     assert response.json()["error"]["code"] == "fix_not_found"
+
+
+async def test_artifacts_come_back_one_entry_per_file(client):
+    run_id = await _at_writeback(client)
+
+    files = (await client.get(f"/api/runs/{run_id}/artifacts")).json()["files"]
+
+    assert STG in [f["filename"] for f in files]
+    stg = next(f for f in files if f["filename"] == STG)
+    assert (stg["kind"], stg["source_agent"]) == ("dbt_model", "data_engineer")
+    assert "card_last4" in stg["content"]

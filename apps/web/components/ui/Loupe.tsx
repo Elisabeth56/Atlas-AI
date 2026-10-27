@@ -6,12 +6,15 @@ export function Loupe({
   lines,
   flagged,
   size = 180,
+  top,
   className = "",
 }: {
   lines: string[];
   /** 1-based line number of the finding */
   flagged: number;
   size?: number;
+  /** px from the top of the positioned parent */
+  top?: number;
   className?: string;
 }) {
   const shown = [flagged - 1, flagged, flagged + 1].filter((n) => n >= 1 && n <= lines.length);
@@ -22,6 +25,7 @@ export function Loupe({
       style={{
         width: size,
         height: size,
+        top,
         boxShadow: "0 0 0 7px var(--surface-2), 0 0 0 8px var(--line), 0 24px 60px var(--drop)",
       }}
     >

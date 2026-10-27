@@ -1,56 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2 } from "lucide-react";
-import { ValidationBanner } from "@/components/agents/ValidationBanner";
-import { getValidationReport } from "@/lib/api";
-import type { ValidationReport } from "@/lib/types";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { QaReport } from "@/components/run/WritebackStage";
+import { getRun, getValidationReport } from "@/lib/api";
+import { runTitle } from "@/lib/runs";
+import type { Run, ValidationReport } from "@/lib/types";
 
+/** The QA report on its own page, for after the run. Fixes only apply at the writeback checkpoint, so it's read-only. */
 export default function ValidationPage() {
-  const params = useParams<{ runId: string }>();
+  const { runId } = useParams<{ runId: string }>();
+  const [run, setRun] = useState<Run | null>(null);
   const [report, setReport] = useState<ValidationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    getValidationReport(params.runId)
-      .then((r) => !cancelled && setReport(r))
-      .catch((e) => !cancelled && setError(String(e)));
-    return () => {
-      cancelled = true;
-    };
-  }, [params.runId]);
+    getRun(runId).then(setRun).catch(() => {});
+    getValidationReport(runId).then(setReport, (e) => setError(e instanceof Error ? e.message : "QA report unavailable."));
+  }, [runId]);
 
   return (
-    <>
-      <div className="bg-bg-base">
-        <div className="mx-auto max-w-[760px] px-6 py-10 lg:px-10">
-          <Link
-            href={`/agents/${params.runId}`}
-            className="flex items-center gap-1.5 text-[13px] text-text-body transition-colors hover:text-text-heading"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" /> Back to run
-          </Link>
-          <h1 className="mt-3 text-[26px] font-bold text-text-heading">Validation report</h1>
-          <p className="mt-1.5 text-[14px] text-text-body">
-            Schema, lint and governance checks run by the QA agent before write-back.
-          </p>
-
-          <div className="mt-8">
-            {error && (
-              <p className="text-[14px] text-accent">Failed to load report: {error}</p>
-            )}
-            {!report && !error && (
-              <div className="flex items-center gap-2 py-10 text-[14px] text-text-body">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading validation report…
-              </div>
-            )}
-            {report && <ValidationBanner report={report} />}
-          </div>
-        </div>
-      </div>
-    </>
+    <div className="flex max-w-[960px] flex-col gap-5 px-4 pt-5 pb-10 sm:px-7">
+      <span className="text-[13px] text-ink-3">
+        Runs <span className="text-ink-3/50">/</span>{" "}
+        <Link href={`/agents/${runId}`} className="hover:text-ink">
+          {run ? runTitle(run.prompt) : "Run"}
+        </Link>{" "}
+        <span className="text-ink-3/50">/</span> <span className="text-ink">QA report</span>
+      </span>
+      {run && (
+        <QaReport
+          run={run}
+          report={report}
+          error={error}
+          onReport={setReport}
+          onChange={() => {}}
+          canApply={run.status === "awaiting_writeback_approval"}
+        />
+      )}
+    </div>
   );
 }

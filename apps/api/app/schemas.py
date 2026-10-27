@@ -115,24 +115,19 @@ class RunOut(BaseModel):
 
 # --- REST: artifacts ----------------------------------------------------
 
-class ArtifactBundleOut(BaseModel):
-    """
-    Flattened bundle — each field is the newline-joined content of every
-    artifact of that kind, matching `ArtifactBundle` in lib/types.ts
-    exactly (the frontend renders these as single code blocks, not a file
-    list, so we concatenate server-side rather than pushing that logic
-    into the UI).
-    """
+class ArtifactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
+    filename: str
+    kind: str  # dbt_model | sql | test | doc | config
+    source_agent: str
+    content: str
+
+
+class ArtifactFilesOut(BaseModel):
     run_id: str
-    dbt_models: str
-    sql: str
-    tests: str
-    docs: str
-    configs: str
+    files: list[ArtifactOut]
 
-
-# --- REST: validation ----------------------------------------------------
 
 class ValidationCheckOut(BaseModel):
     name: str
