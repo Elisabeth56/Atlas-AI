@@ -80,4 +80,5 @@ async def health() -> dict[str, str | bool]:
         "status": "ok",
         "llm_demo_mode": settings.llm_demo_mode,
         "datahub_mode": settings.datahub_mode,
+        "commit": settings.RENDER_GIT_COMMIT,
     }
