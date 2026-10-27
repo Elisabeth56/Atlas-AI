@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PIPELINE } from "@/lib/pipeline";
 import { HAS_BACKEND, getRun, waitForSimulationResume } from "@/lib/api";
 import { supabaseBrowser } from "@/lib/supabase/client";
+import { ApiError } from "@/lib/errors";
 import type { Run, RunStep } from "@/lib/types";
 
 export type StageStatus = "pending" | "running" | "done" | "failed";
@@ -27,6 +28,7 @@ const TERMINAL = new Set(["complete", "failed"]);
 export function useRunStream(runId: string) {
   const [run, setRun] = useState<Run | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const sim = useSimulation(runId, !HAS_BACKEND);
   const refreshRef = useRef<() => Promise<void>>(async () => {});
   // lets an action (a checkpoint click) pull fresh state without waiting for Realtime
@@ -46,7 +48,9 @@ export function useRunStream(runId: string) {
         setConnectionError(null);
         if (TERMINAL.has(next.status) && poller) clearInterval(poller);
       } catch (e) {
-        if (!cancelled) setConnectionError(e instanceof Error ? e.message : "Couldn’t load this run.");
+        if (cancelled) return;
+        if (e instanceof ApiError && e.code === "run_not_found") setNotFound(true);
+        else setConnectionError(e instanceof Error ? e.message : "Couldn’t load this run.");
       }
     };
     refreshRef.current = refresh;
@@ -86,8 +90,8 @@ export function useRunStream(runId: string) {
     };
   }, [runId]);
 
-  if (!HAS_BACKEND) return { ...sim, run: null, failed: false, connectionError: null, live: false, refresh };
-  return { ...fromRun(run), run, connectionError, live: true, refresh };
+  if (!HAS_BACKEND) return { ...sim, run: null, failed: false, connectionError: null, notFound: false, live: false, refresh };
+  return { ...fromRun(run), run, connectionError, notFound, live: true, refresh };
 }
 
 function fromRun(run: Run | null) {
