@@ -29,9 +29,9 @@ export function Pencil({ d, delay = 0.6 }: { d: string; delay?: number }) {
         stroke="var(--safelight)"
         strokeWidth={3.5}
         strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
         style={{ animationDelay: `${delay}s` }}
-        className={`[stroke-dasharray:1] motion-reduce:[stroke-dashoffset:0] ${drawn ? "motion-safe:animate-[draw_1.4s_cubic-bezier(0.22,1,0.36,1)_both]" : "motion-safe:[stroke-dashoffset:1]"}`}
+        // no non-scaling-stroke here: it breaks pathLength-based dashes in Chrome and leaves a stray arc
+        className={`[stroke-dasharray:1] motion-reduce:[stroke-dashoffset:0] ${drawn ? "motion-safe:animate-[draw_1.4s_cubic-bezier(0.22,1,0.36,1)_both]" : "motion-safe:opacity-0 motion-safe:[stroke-dashoffset:1]"}`}
       />
     </svg>
   );
