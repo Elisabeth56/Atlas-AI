@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     DEMO_WORKSPACE_ID: str = "00000000-0000-0000-0000-0000000000d0"  # matches supabase/seed.sql
     RUNS_PER_HOUR: int = 10
 
+    # --- Worker ---
+    # The API process runs the job loop (app/worker.py). Tests turn it off and drive phases directly.
+    WORKER_ENABLED: bool = True
+
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas"
     DB_ECHO: bool = False

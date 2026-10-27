@@ -11,6 +11,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("DEMO_MODE", "true")
 os.environ.setdefault("AUTH_MODE", "supabase")
+os.environ.setdefault("WORKER_ENABLED", "false")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-that-is-long-enough-for-hs256")
 
 import time  # noqa: E402

@@ -2,25 +2,15 @@
 from __future__ import annotations
 
 import httpx
-import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import get_engine, session_scope
 from app.main import app
 from app.models import Run, WorkspaceMember
-from app.routers import runs as runs_router
 from tests.conftest import DEMO_WORKSPACE, token_for
 
 STRANGER = "00000000-0000-0000-0000-0000000000ff"
-
-
-@pytest.fixture(autouse=True)
-def no_pipeline(monkeypatch):
-    async def idle(*_args) -> None:
-        pass
-
-    monkeypatch.setattr(runs_router, "run_context_phase", idle)
 
 
 async def _as(user: str | None, method: str, path: str, **kwargs) -> httpx.Response:

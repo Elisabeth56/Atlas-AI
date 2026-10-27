@@ -31,7 +31,7 @@ async def _run_to_generation(db_ready) -> str:
         db.add(request)
         await db.flush()
         run_id = request.id
-    await orchestrator.run_context_phase(run_id, "customer revenue from stripe and postgres")
+    await orchestrator.run_context_phase(run_id)
     await _claim_generation(run_id)
     return run_id
 

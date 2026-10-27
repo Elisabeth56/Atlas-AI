@@ -26,3 +26,10 @@ One worker processes runs one at a time, so the queue backs up. Fix: run worker 
 
 ## Revisit when
 Sustained queue wait goes past 1 minute, or runs need fan-out or scheduling that a job table handles badly.
+
+## As built (#26)
+- The job lives on the run row: `phase` (owed work), `locked_by`, `locked_until`, `attempts`. No separate jobs table, since a run never owes more than one phase at a time.
+- The worker runs inside the API process (`app/worker.py`, started in the lifespan). It polls every 1 s. The lease is 60 s and is renewed every 15 s while a phase runs.
+- Checkpoint endpoints queue the next phase in the same statement that claims the checkpoint, so approving and queueing can't drift apart.
+- A phase that takes its worker down 3 times marks the run failed instead of looping.
+- `tests/integration/test_worker.py` kills a run mid-QA, expires the lease and checks that a second worker finishes it without re-running the data engineer.
