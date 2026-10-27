@@ -1,4 +1,4 @@
-// Mirrors backend/app/schemas.py and models.py. Keep these in sync with the
+// Mirrors apps/api/app/schemas.py and models.py. Keep these in sync with the
 // FastAPI Pydantic contracts so the frontend never has to guess shapes.
 
 export type AgentId =
@@ -58,7 +58,7 @@ export interface RequestSummary {
 }
 
 // Shape of each entry in metadata_analyst's AgentRun.output_json.matched_datasets —
-// mirrors backend/app/schemas.py's MatchedDataset exactly.
+// mirrors apps/api/app/schemas.py's MatchedDataset exactly.
 export interface MatchedDataset {
   urn: string;
   name: string;

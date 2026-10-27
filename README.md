@@ -166,7 +166,7 @@ rather than as a single global singleton (see `orchestrator.py`'s
 ([ADR 002](docs/decisions/002-supabase-database-and-auth.md) adds the
 `datahub_connections` table).
 
-See `backend/scripts/inspect_mcp_tools.py` — run it once your DataHub +
+See `apps/api/scripts/inspect_mcp_tools.py` — run it once your DataHub +
 MCP setup is live to print every real tool's input schema and verify it
 against what `mcp_gateway.py` actually calls.
 
@@ -179,8 +179,8 @@ Atlas AI/
 ├── docker-compose.yml
 ├── LICENSE
 ├── README.md                    ← you are here
-├── examples/                    ← real generated pipeline output,see below
-├── backend/
+├── docs/examples/               ← real generated pipeline output, see below
+├── apps/api/
 │   ├── pyproject.toml
 │   ├── Dockerfile
 │   ├── .env.example
@@ -191,7 +191,7 @@ Atlas AI/
 │   │   ├── config.py               # Settings — LLM mode, DataHub mode, DB, CORS
 │   │   ├── database.py              # Async SQLAlchemy engine/session
 │   │   ├── models.py                 # Request, AgentRun, Artifact, ValidationReport
-│   │   ├── schemas.py                 # Pydantic wire contracts (mirrors frontend/lib/types.ts)
+│   │   ├── schemas.py                 # Pydantic wire contracts (mirrors apps/web/lib/types.ts)
 │   │   ├── ws_hub.py                   # Room-based WebSocket broadcaster
 │   │   ├── orchestrator.py              # 3-phase pipeline runner, 2 checkpoints
 │   │   ├── agents/                       # Planner, Metadata Analyst, Data Engineer,
@@ -201,7 +201,7 @@ Atlas AI/
 │   └── tests/
 │       ├── unit/                            # QA agent's deterministic checks
 │       └── contract/                         # fixture ⟷ schema validation, pipeline order
-└── frontend/
+└── apps/web/
     ├── Dockerfile
     ├── package.json
     ├── app/
@@ -215,7 +215,7 @@ Atlas AI/
     │       └── WritebackApprovalPanel.tsx           # writeback checkpoint UI
     ├── hooks/useRunStream.ts                          # WS client, drives the live run view
     └── lib/
-        ├── types.ts                                    # mirrors backend/app/schemas.py
+        ├── types.ts                                    # mirrors apps/api/app/schemas.py
         └── api.ts                                        # REST client
 ```
 
@@ -305,14 +305,14 @@ the full flow work end-to-end.
 createdb atlas
 
 # Backend
-cd backend
+cd apps/api
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 uvicorn app.main:app --reload
 
 # Frontend (separate terminal)
-cd frontend
+cd apps/web
 npm install
 echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
 npm run dev
@@ -324,7 +324,7 @@ your input twice.
 ### Going beyond demo mode
 
 - **LLM providers:** set any of `GROQ_API_KEY`, `CEREBRAS_API_KEY`,
-  `GEMINI_API_KEY` in `backend/.env`. They are tried in that order and a
+  `GEMINI_API_KEY` in `apps/api/.env`. They are tried in that order and a
   rate-limited or failing provider hands the call to the next
   ([ADR 004](docs/decisions/004-llm-provider-chain.md)).
 - **DataHub:** set `DATAHUB_GMS_URL` (and `DATAHUB_TOKEN` if your instance
@@ -379,7 +379,7 @@ accounts.
   long-running processes and WebSockets — not a serverless/edge platform,
   since the orchestrator's background tasks and the WS stream both need a
   persistent process. All three support Docker deploys directly from the
-  `backend/Dockerfile`.
+  `apps/api/Dockerfile`.
 - **Postgres → the same platform's managed Postgres**, or Supabase/Neon.
   Update `DATABASE_URL` accordingly.
 - **CORS:** set `CORS_ORIGINS` on the backend to your actual Vercel
@@ -394,7 +394,7 @@ accounts.
 ## Testing
 
 ```bash
-cd backend
+cd apps/api
 source .venv/bin/activate
 python -m pytest tests/unit tests/contract -v
 ```
@@ -411,9 +411,9 @@ order matches what the frontend expects.
 
 ## Examples
 
-`backend/examples/` contains real pipeline output — generated directly
+`docs/examples/` contains real pipeline output — generated directly
 from the same fixture objects `MockLLMProvider` returns at runtime, not
-hand-written to look good. See `backend/examples/README.md` for what
+hand-written to look good. See `docs/examples/README.md` for what
 each file is and why the QA report in there shows a genuine failure
 (unmasked PII), not a cherry-picked clean run.
 

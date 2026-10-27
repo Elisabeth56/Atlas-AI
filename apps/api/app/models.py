@@ -1,4 +1,4 @@
-"""ORM models. Tables mirror the frontend contract in frontend/lib/types.ts."""
+"""ORM models. Tables mirror the frontend contract in apps/web/lib/types.ts."""
 from __future__ import annotations
 
 import uuid

@@ -124,7 +124,7 @@ function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// Mirrors backend/app/demo/seed_data.py's _MATCHED_DATASETS exactly so the
+// Mirrors apps/api/app/demo/seed_data.py's _MATCHED_DATASETS exactly so the
 // ContextReviewPanel and WritebackApprovalPanel render the same three
 // datasets in simulation as a real Groq + DataHub run would.
 const MOCK_MATCHED_DATASETS: MatchedDataset[] = [

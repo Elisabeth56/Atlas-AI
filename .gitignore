@@ -2,8 +2,8 @@
 .env
 .env.local
 .env.*.local
-backend/.env
-frontend/.env.local
+apps/api/.env
+apps/web/.env.local
 
 # --- Python (backend) ---
 __pycache__/

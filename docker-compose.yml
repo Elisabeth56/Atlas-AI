@@ -17,7 +17,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: ./apps/api
     ports:
       - "8000:8000"
     environment:
@@ -35,7 +35,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: ./apps/web
       args:
         # build args, not env: Next.js inlines NEXT_PUBLIC_* at build time
         NEXT_PUBLIC_API_URL: http://localhost:8000

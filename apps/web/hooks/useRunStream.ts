@@ -25,7 +25,7 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * `pausedAt` reflects the two human-in-the-loop checkpoints: "context"
  * after Metadata Analyst (before Data Engineer runs) and "writeback"
  * after Documentation (before Writeback runs). The run genuinely stops
- * server-side at each — see backend/app/orchestrator.py — this hook just
+ * server-side at each — see apps/api/app/orchestrator.py — this hook just
  * surfaces that stop so a panel can render and call the accept/start-fresh
  * or approve/skip actions in lib/api.ts.
  */
@@ -125,7 +125,7 @@ export function useRunStream(runId: string) {
 
         // Mirror the real orchestrator's two checkpoints in simulation so
         // the human-in-the-loop panels render here too. See
-        // backend/app/orchestrator.py — CONTEXT_PHASE ends at index 1
+        // apps/api/app/orchestrator.py — CONTEXT_PHASE ends at index 1
         // (Metadata Analyst); GENERATION_PHASE ends at index 4
         // (Documentation). The panels' accept/skip actions call postAction
         // in lib/api.ts, which fires the resume signal we're awaiting here.
