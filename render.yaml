@@ -29,7 +29,7 @@ services:
       - key: CORS_ORIGINS
         sync: false
       - key: CORS_ORIGIN_REGEX
-        value: https://atlas-ai-[a-z0-9-]+-elisabeth-nnamanis-projects\.vercel\.app
+        value: https://atlas-[a-z0-9-]+-elisabeth-nnamanis-projects\.vercel\.app
       - key: GROQ_API_KEY
         sync: false
       - key: GEMINI_API_KEY
