@@ -134,6 +134,7 @@ npm run dev
 - Set `DATAHUB_GMS_URL` (and `DATAHUB_TOKEN` if auth is on).
 - Then `pip install mcp-server-datahub`.
 - `python scripts/inspect_mcp_tools.py` prints the tool schemas Atlas calls.
+- Screenshots from a live DataHub: [tool schemas](docs/mcp-tool-schemas.png), [a search through MCP](docs/mcp-live-search.png).
 
 **Tests:**
 ```bash

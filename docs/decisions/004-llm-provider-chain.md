@@ -30,6 +30,7 @@ Every free tier's daily limits run out. Fix: a paid tier on the primary provider
 Fallback calls exceed 20% of all calls, or evals show a provider scores lower on grounding.
 
 ## As built (#29)
+- The module is `app/llm/chain.py` (`ProviderChain.complete(prompt_id, user_prompt, schema)`), with prompts in `app/llm/prompts/*.md`. With logging and fallback it came to about 200 lines.
 - `ProviderChain` reports every HTTP call through an `on_call` callback: provider, model, prompt, tokens, latency, outcome, and whether an earlier provider already failed the call. The chain itself never touches the database.
 - The orchestrator stores each call in `llm_calls`, tagged with the run and agent from a context variable set around `agent.run`.
 - Failed calls and answers that came from a fallback provider are appended to the step's live log, e.g. `groq rate limited` → `answered by gemini (gemini-3.5-flash-lite)`.
