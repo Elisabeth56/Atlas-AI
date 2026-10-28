@@ -29,7 +29,6 @@ services:
       AUTH_MODE: ${AUTH_MODE:-off}
       CORS_ORIGINS: "http://localhost:3000"
       GROQ_API_KEY: ${GROQ_API_KEY:-}
-      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       DATAHUB_GMS_URL: ${DATAHUB_GMS_URL:-}
       DATAHUB_TOKEN: ${DATAHUB_TOKEN:-}

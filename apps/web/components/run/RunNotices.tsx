@@ -14,7 +14,7 @@ const STEP_NAMES: Record<string, string> = {
   documentation: "documentation",
   writeback: "writeback",
 };
-const PROVIDERS: Record<string, string> = { groq: "Groq", cerebras: "Cerebras", gemini: "Gemini" };
+const PROVIDERS: Record<string, string> = { groq: "Groq", gemini: "Gemini" };
 
 /**
  * What went wrong and what Atlas did about it, in plain words: a model provider that failed over,
@@ -38,7 +38,7 @@ export function RunNotices({ run, onChange }: { run: Run; onChange: () => void }
   );
 }
 
-/** "Groq rate-limited the data engineer step. Atlas retried on Cerebras and it passed." from the step's own log. */
+/** "Groq rate-limited the data engineer step. Atlas retried on Gemini and it passed." from the step's own log. */
 function recovery(step: RunStep): string | null {
   if (step.status !== "success") return null;
   const answered = step.logs.find((l) => l.startsWith("answered by "));

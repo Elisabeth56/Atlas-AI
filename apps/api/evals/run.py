@@ -185,7 +185,7 @@ def main() -> None:
         configured = [p.name for p in providers_from_settings(get_settings())]
         providers = args.providers.split(",") if args.providers else configured
         if not providers:
-            raise SystemExit("No provider keys set (GROQ_API_KEY, CEREBRAS_API_KEY, GEMINI_API_KEY). Use --mock to check the harness.")
+            raise SystemExit("No provider keys set (GROQ_API_KEY, GEMINI_API_KEY). Use --mock to check the harness.")
 
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
     reports = []
