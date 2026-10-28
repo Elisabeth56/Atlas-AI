@@ -14,7 +14,7 @@ DataHub Cloud isn't available. The self-hosted quickstart needs about 5 GB+ of R
 
 ## Alternatives rejected
 - **DataHub Cloud.** Not available.
-- **A paid VM to host DataHub live.** Costs money. Possible later on the Oracle free VM (see 007), if it has enough RAM to spare.
+- **A paid VM to host DataHub live.** Costs money. Possible later on a larger instance than the API needs (see 007).
 
 ## Consequences
 - The live demo is honest and reliable, but grounding comes from a fixed catalog.

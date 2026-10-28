@@ -1,42 +1,51 @@
 # Deploying Atlas
 
-The web app runs on Vercel. The API, including its worker, runs on an Oracle Cloud Always Free VM behind Caddy. The database, auth and Realtime are Supabase. ADR 007 explains the choice; Render's free tier is the fallback.
+Three services, each doing what it's good at:
+- **Vercel** serves the web app;
+- **Render** runs the API and its worker, which has to stay running (ADR 007);
+- **Supabase** holds the database, sign-in and live updates.
 
 ## 1. Supabase
 
-1. Create a project (free tier). Under Authentication → Providers, enable **Anonymous sign-ins**; the demo signs every visitor in anonymously, with a private workspace.
-2. Apply the schema: `supabase link --project-ref <ref>` then `supabase db push`. This runs `supabase/migrations/*`, which create the tables, the RLS policies and the Realtime publication. Load `supabase/seed.sql` once for the sample catalog connection.
-3. Note the project URL, the anon key and the **session pooler** connection string (Project Settings → Database). The session pooler is IPv4 and keeps prepared statements, which asyncpg needs.
+1. Create a project on the free tier. Under Authentication → Providers, enable **Anonymous sign-ins**; the demo signs every visitor in anonymously, with a private workspace.
+2. Apply the schema from the repo root: `supabase link --project-ref <ref>` then `supabase db push`. This creates the tables, the RLS policies and the Realtime publication. Run `supabase/seed.sql` once (SQL editor) for the sample catalog connection.
+3. Note three things from Project Settings:
+   - the project URL;
+   - the anon key;
+   - under Database, the **session pooler** connection string. It's IPv4, and it keeps the prepared statements asyncpg needs.
 
-## 2. The VM (Oracle Always Free)
+## 2. Render
 
-1. Create an Ampere A1 instance (Ubuntu, 2 OCPU / 12 GB is within the free allowance). In the VCN's security list, open ports 80 and 443. On the instance, also open them in iptables, since Oracle's Ubuntu image blocks them by default:
-   `sudo iptables -I INPUT -p tcp -m multiport --dports 80,443 -j ACCEPT && sudo netfilter-persistent save`
-2. Install Docker: `curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER`.
-3. Point a DNS A record (for example `api.your-domain`) at the instance's public IP.
-4. `mkdir ~/atlas`, copy `deploy/.env.example` to `~/atlas/.env` and fill it in.
-5. The deploy workflow copies `docker-compose.yml` and the `Caddyfile` and starts them. The first start gets a TLS certificate.
-
-If Oracle signup or A1 capacity fails, use **Render**: create a Blueprint from `render.yaml` and set the secret values in the dashboard. It runs the same image.
+1. In the Render dashboard, choose **New → Blueprint** and pick this repository. Render reads `render.yaml` and creates `atlas-api`. It uses the **Free** plan: the API sleeps after 15 idle minutes and the next visitor waits about a minute while it wakes. Choose Starter instead if that wait matters.
+2. Fill in the values marked as secret:
+   - `DATABASE_URL`: the session pooler string, with the scheme changed to `postgresql+asyncpg://`;
+   - `SUPABASE_URL`;
+   - `CORS_ORIGINS`: the Vercel production URL;
+   - `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `GEMINI_API_KEY`.
+3. Copy the service URL (`https://atlas-api-….onrender.com`). Under Settings, copy the **Deploy Hook** URL.
 
 ## 3. GitHub
 
-Repository **variables**: `DEPLOY_ENABLED=true`, `API_URL` (`https://api.your-domain`), `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
-Repository **secrets**: `VM_HOST`, `VM_USER`, `VM_SSH_KEY` (a key the VM accepts), `SUPABASE_DB_URL` (direct connection string, for migrations).
+Repository **variables**:
+- `DEPLOY_ENABLED=true`;
+- `API_URL` (the Render URL);
+- `SUPABASE_URL`;
+- `SUPABASE_ANON_KEY`.
+
+Repository **secrets**:
+- `RENDER_DEPLOY_HOOK`;
+- `SUPABASE_DB_URL` (the direct connection string, for migrations).
 
 Each push to `main` that touches the API:
-- builds the image for arm64 and amd64 and pushes it to GHCR;
-- applies migrations;
-- rolls it out on the VM;
-- waits for `/health`;
-- runs `scripts/smoke.py`, which signs in anonymously, starts a run and waits for the sources checkpoint.
-
-The GHCR package must be public, or the VM needs `docker login ghcr.io`.
+1. applies migrations;
+2. triggers the Render deploy;
+3. waits until `/health` reports the new commit;
+4. runs `scripts/smoke.py`, which signs in anonymously, starts a run and waits for the sources checkpoint. It never approves anything.
 
 ## 4. Vercel
 
-Project root directory: `apps/web`. Environment variables, for Production and Preview:
-- `NEXT_PUBLIC_API_URL` = the API URL
-- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+The project root directory is `apps/web`. Set these for Production and Preview:
+- `NEXT_PUBLIC_API_URL`: the Render URL;
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 
-In Supabase Auth → URL Configuration, add the Vercel production URL and `https://*-elisabeth-nnamanis-projects.vercel.app/**` as redirect URLs.
+In Supabase, under Authentication → URL Configuration, add the Vercel production URL and `https://*-elisabeth-nnamanis-projects.vercel.app/**` as redirect URLs.

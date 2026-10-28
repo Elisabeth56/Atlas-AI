@@ -1,13 +1,15 @@
-# Fallback host (ADR 007): Render's free web service runs the same image. It sleeps after 15 minutes
-# idle; the job lease (ADR 001) resumes any run a sleep interrupts. Secrets are set in the Render dashboard.
+# The API on Render (ADR 007). Render builds apps/api/Dockerfile from this repo; the deploy workflow
+# triggers each deploy after migrations, so autoDeploy is off. Secrets are set in the Render dashboard.
 services:
   - type: web
     name: atlas-api
-    runtime: image
-    image:
-      url: ghcr.io/elisabeth56/atlas-api:latest
-    plan: free
+    runtime: docker
+    rootDir: apps/api
+    dockerfilePath: ./Dockerfile
+    region: frankfurt
+    plan: free # sleeps after 15 idle minutes and wakes in about a minute; "starter" keeps it on (ADR 007)
     healthCheckPath: /health
+    autoDeploy: false
     envVars:
       - key: AUTH_MODE
         value: supabase
@@ -15,14 +17,19 @@ services:
         value: "false"
       - key: ENVIRONMENT
         value: production
+      - key: RUNS_PER_HOUR
+        value: "10"
+      # Supabase → Project Settings → Database → Session pooler (IPv4, keeps prepared statements).
+      # Use the postgresql+asyncpg:// scheme.
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL
         sync: false
+      # the Vercel production URL; previews match CORS_ORIGIN_REGEX
       - key: CORS_ORIGINS
         sync: false
       - key: CORS_ORIGIN_REGEX
-        sync: false
+        value: https://atlas-ai-[a-z0-9-]+-elisabeth-nnamanis-projects\.vercel\.app
       - key: GROQ_API_KEY
         sync: false
       - key: CEREBRAS_API_KEY

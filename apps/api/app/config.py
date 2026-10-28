@@ -59,6 +59,9 @@ class Settings(BaseSettings):
         """mcp when a DataHub URL is configured, otherwise the seeded sample catalog."""
         return "mcp" if self.DATAHUB_GMS_URL else "mock"
 
+    # Render sets this to the deployed commit; /health reports it so a deploy can wait for its own version
+    RENDER_GIT_COMMIT: str = ""
+
     # --- CORS ---
     # a str, not list[str]: pydantic-settings JSON-decodes list fields, which breaks "a,b" values
     CORS_ORIGINS_RAW: str = Field(

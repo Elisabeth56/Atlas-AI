@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/shell/Logo";
+import { API_BASE } from "@/lib/api";
 
 const SECTIONS = [
   { id: "sheet", label: "Contact sheet" },
@@ -16,6 +17,11 @@ const SECTIONS = [
 export function LandingNav() {
   const router = useRouter();
   const [active, setActive] = useState<string | null>(null);
+
+  // wake the API while the visitor reads, so a sleeping free-tier instance is up by the time they start a run
+  useEffect(() => {
+    fetch(`${API_BASE}/health`).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const seen = new IntersectionObserver(
