@@ -28,4 +28,6 @@ Results are written to `results/` (JSON per provider, and `latest.md`).
 
 ## Results
 
-The baseline hasn't been run yet; it needs the provider keys.
+On GitHub: Actions → **evals** → Run workflow. It needs `GROQ_API_KEY` and `GEMINI_API_KEY` as repository secrets. The table appears in the run summary, and the JSON is attached as an artifact.
+
+The baseline hasn't been run yet.
