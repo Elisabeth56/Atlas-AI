@@ -1,0 +1,42 @@
+name: evals
+
+# Runs the eval suite (apps/api/evals) against the real providers. Manual only: each run spends
+# free-tier quota. Needs the repository secrets GROQ_API_KEY and GEMINI_API_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      providers:
+        description: "comma-separated; empty runs every provider with a key"
+        required: false
+      limit:
+        description: "run only the first N cases; empty runs all 26"
+        required: false
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: apps/api
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv venv --python 3.12 && uv pip install -e .
+      - name: Run evals
+        run: |
+          args=()
+          [ -n "${{ inputs.providers }}" ] && args+=(--providers "${{ inputs.providers }}")
+          [ -n "${{ inputs.limit }}" ] && args+=(--limit "${{ inputs.limit }}")
+          .venv/bin/python -m evals.run "${args[@]}"
+      - name: Summary
+        if: always()
+        run: cat evals/results/latest.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: apps/api/evals/results/
