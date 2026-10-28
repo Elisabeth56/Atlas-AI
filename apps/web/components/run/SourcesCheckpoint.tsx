@@ -85,7 +85,7 @@ export function SourcesCheckpoint({ run, onDecided }: { run: Run; onDecided: () 
         <Button size="lg" variant="secondary" onClick={() => decide("fresh")} disabled={!!choice}>
           {choice === "fresh" ? "Starting fresh…" : "Start fresh"}
         </Button>
-        <span className="text-[13px] text-ink-3">Starting fresh skips grounding; QA marks the output ungrounded.</span>
+        <span className="text-[13px] text-ink-3">Starting fresh skips grounding. QA still blocks unmasked PII.</span>
       </div>
     </CheckpointPanel>
   );

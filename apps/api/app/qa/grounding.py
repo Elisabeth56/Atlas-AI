@@ -114,6 +114,7 @@ def _check_model(
 
     # unknown tables first: columns can't be checked against a table that isn't there
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
+    _qualify_bare_tables(tree, tables, ctes)
     for t in tree.find_all(exp.Table):
         key = (t.db.lower(), t.name.lower())
         if t.name.lower() in ctes or key in tables:
@@ -144,6 +145,7 @@ def _check_model(
 def _render(sql: str, tables: dict[tuple[str, str], Table]) -> tuple[str, str | None]:
     """Replaces ref()/source() with table names. Returns a problem if other Jinja remains."""
     by_table = {name: (schema, name) for schema, name in tables}
+    by_table.update({f"{schema}_{name}": (schema, name) for schema, name in tables})  # source('stripe', 'raw_stripe_payments')
 
     def source(m: re.Match) -> str:
         schema, name = m.group(1).lower(), m.group(2).lower()
@@ -159,6 +161,17 @@ def _render(sql: str, tables: dict[tuple[str, str], Table]) -> tuple[str, str | 
     if _ANY_JINJA.search(out):
         return out, "uses Jinja beyond ref() and source(), so its columns can't be checked statically"
     return out, None
+
+
+def _qualify_bare_tables(tree: exp.Expression, tables: dict[tuple[str, str], Table], ctes: set[str]) -> None:
+    """`from customers` reads public.customers when exactly one catalog table has that name."""
+    schemas: dict[str, list[str]] = {}
+    for schema, name in tables:
+        schemas.setdefault(name, []).append(schema)
+    for t in tree.find_all(exp.Table):
+        name = t.name.lower()
+        if not t.db and name not in ctes and len(schemas.get(name, [])) == 1:
+            t.set("db", exp.to_identifier(schemas[name][0]))
 
 
 def _mapping_schema(tables: dict[tuple[str, str], Table]) -> dict[str, dict[str, dict[str, str]]]:
@@ -266,3 +279,21 @@ def parse_errors(models: dict[str, str]) -> dict[str, str]:
         except ParseError as e:
             errors[filename] = str(e).splitlines()[0]
     return errors
+
+
+def tables_read(models: dict[str, str]) -> set[tuple[str, str]]:
+    """The source tables the models read, as (schema, table); generated models and CTEs are left out."""
+    found: set[tuple[str, str]] = set()
+    for sql in models.values():
+        plain, problem = _render(sql, {})
+        if problem:
+            continue
+        try:
+            tree = sqlglot.parse_one(plain, read=DIALECT)
+        except ParseError:
+            continue
+        ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
+        for t in tree.find_all(exp.Table):
+            if t.name.lower() not in ctes and t.db.lower() != GENERATED_SCHEMA:
+                found.add((t.db.lower(), t.name.lower()))
+    return found

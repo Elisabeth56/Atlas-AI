@@ -4,6 +4,9 @@ Five checks, in the order the report shows them:
 columns resolve to DataHub · SQL parses · PII stays masked · keys are tested · metadata complete.
 Ground truth is the schema DataHub returns now, not the column list the metadata analyst
 (an LLM) wrote down, which could itself be wrong.
+
+A run that started fresh has no matched datasets, so its columns go unchecked. PII still is:
+QA looks up the tables the SQL reads, because skipping grounding shouldn't skip masking.
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ import yaml
 from app.agents.base import Agent, AgentResult, RunContext
 from app.datahub.gateway import is_pii
 from app.qa.fixes import suggest_mask
-from app.qa.grounding import ModelCheck, Table, check_models, parse_errors, table_key
+from app.qa.grounding import ModelCheck, Table, check_models, parse_errors, table_key, tables_read
 from app.schemas import GeneratedFile, MatchedDataset, ValidationCheckOut
 
 MAX_LISTED = 4  # findings named in one message before "and N more"
@@ -30,7 +33,7 @@ class QAAgent(Agent):
 
         if datasets:
             await ctx.emit_log("reading source schemas from DataHub")
-            catalog, empty = await _load_catalog(ctx, datasets)
+            catalog, empty = await _load_catalog(ctx, [(d.urn, d.name) for d in datasets])
             await ctx.emit_log("resolving every column against the catalog")
             results = check_models(models, catalog)
             fixes = [
@@ -45,14 +48,22 @@ class QAAgent(Agent):
                 _metadata_check(empty),
             ]
         else:
-            await ctx.emit_log("no catalog datasets: checking syntax and tests only")
-            fixes = []
+            await ctx.emit_log("started fresh: looking up the tables the SQL reads, for PII tags")
+            found = await _find_read_tables(ctx, models)
+            catalog, _ = await _load_catalog(ctx, found)
+            results = check_models(models, catalog) if catalog else []
+            fixes = [
+                fix for r in results for e in r.exposed_pii
+                if (fix := suggest_mask(r.filename, models[r.filename], e))
+            ]
+            pii = _pii_check(results) if catalog else _check(
+                "PII stays masked", False, "warning",
+                "None of the tables this SQL reads are in DataHub, so there are no PII tags to check against.")
             checks = [
                 _check("Columns resolve to DataHub", False, "warning",
                        "Ungrounded: this run started fresh, so no column could be checked against DataHub."),
                 _parse_check_ungrounded(parse_errors(models)),
-                _check("PII stays masked", False, "warning",
-                       "Without catalog datasets there are no PII tags to check against."),
+                pii,
                 _key_tests_check(files),
             ]
 
@@ -70,20 +81,33 @@ class QAAgent(Agent):
         )
 
 
-async def _load_catalog(ctx: RunContext, datasets: list[MatchedDataset]) -> tuple[dict, list[str]]:
-    """One schema fetch per dataset, all at once. Returns the catalog and datasets with no fields."""
-    schemas = await asyncio.gather(*(ctx.datahub.get_schema(d.urn) for d in datasets))
+async def _load_catalog(ctx: RunContext, datasets: list[tuple[str, str]]) -> tuple[dict, list[str]]:
+    """One schema fetch per (urn, name), all at once. Returns the catalog and datasets with no fields."""
+    schemas = await asyncio.gather(*(ctx.datahub.get_schema(urn) for urn, _ in datasets))
     catalog: dict[tuple[str, str], Table] = {}
     empty: list[str] = []
-    for ds, schema in zip(datasets, schemas, strict=True):
+    for (_, name), schema in zip(datasets, schemas, strict=True):
         fields = [f for f in schema.get("fields", []) if f.get("name")]
         if not fields:
-            empty.append(ds.name)
-        catalog[table_key(ds.name)] = Table(
+            empty.append(name)
+        catalog[table_key(name)] = Table(
             columns=[f["name"].lower() for f in fields],
             pii={f["name"].lower() for f in fields if is_pii(f)},
         )
     return catalog, empty
+
+
+async def _find_read_tables(ctx: RunContext, models: dict[str, str]) -> list[tuple[str, str]]:
+    """DataHub datasets for the tables the SQL reads, matched on table name: (urn, name)."""
+    wanted = tables_read(models)
+    hits = await asyncio.gather(*(ctx.datahub.search_datasets(name, limit=5) for _, name in wanted))
+    names = {name for _, name in wanted}
+    found: dict[str, str] = {}
+    for hit in (h for batch in hits for h in batch):
+        schema, table = table_key(hit["name"])
+        if table in names or f"{schema}_{table}" in names:
+            found[hit["urn"]] = hit["name"]
+    return list(found.items())
 
 
 def _columns_check(results: list[ModelCheck]) -> ValidationCheckOut:

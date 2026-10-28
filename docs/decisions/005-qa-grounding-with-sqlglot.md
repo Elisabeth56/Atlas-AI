@@ -19,7 +19,7 @@ The project's main claim is that generated SQL only uses real columns. The old c
 ## As built (Oct 2026)
 - Ground truth is the schema DataHub returns at QA time (one `get_schema` per dataset, concurrently), not the column list in the metadata analyst's output, which is itself LLM-written.
 - Models are checked in `ref()` order, so a mart is checked against its staging model's real output columns. A model downstream of a failed one is reported as blocked, not blamed.
-- `source(schema, table)` resolves by exact catalog name, then by table name alone. Anything else is an unknown table.
+- `source(schema, table)` resolves by exact catalog name, then by table name alone, then by `schema_table` (`source('stripe', 'raw_stripe_payments')` reads `raw.stripe_payments`). A bare `from customers` resolves when exactly one catalog table has that name. Anything else is an unknown table.
 - Masking functions: md5, sha*, hash, mask, and count (a count of PII is not PII). Any other function, `lower()` included, still carries PII through.
 
 ## Consequences
@@ -37,3 +37,8 @@ Users generate macro-heavy dbt projects that sqlglot can't parse after Jinja is 
 - The fix id is a hash of file and column, so the same finding always has the same id.
 - `POST /runs/{id}/fixes/{fix_id}/apply` works only at the writeback checkpoint. In one transaction holding the run's row lock, it patches the artifact and the data engineer's stored output, then re-runs QA with a provider that refuses to be called. Applying a fix twice is a no-op. If the line changed underneath, the response is `fix_stale`.
 - Documentation isn't regenerated after a fix. The docs keep the old column name until a later run.
+
+## Fresh runs (2026-10-28)
+- A run that starts fresh has no matched datasets, and QA used to skip the PII check for it. On the sample catalog that meant every fresh run that leaked PII went through unblocked.
+- QA now reads the table names out of the SQL, searches DataHub for them, and runs the same check against those schemas. Columns still report "ungrounded" as a warning: the user chose not to ground the run, but masking isn't optional.
+- If none of the tables are in DataHub, the PII check is a warning, as before.
