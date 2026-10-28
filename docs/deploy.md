@@ -34,7 +34,7 @@ Repository **variables**:
 
 Repository **secrets**:
 - `RENDER_DEPLOY_HOOK`;
-- `SUPABASE_DB_URL` (the direct connection string, for migrations).
+- `SUPABASE_DB_URL`: the session pooler string, for migrations. The direct connection is IPv6 only on the free plan, and GitHub's runners can't reach it.
 
 Each push to `main` that touches the API:
 1. applies migrations;
