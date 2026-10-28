@@ -18,7 +18,7 @@ Three services, each doing what it's good at:
 
 1. In the Render dashboard, choose **New → Blueprint** and pick this repository. Render reads `render.yaml` and creates `atlas-api`. It uses the **Free** plan: the API sleeps after 15 idle minutes and the next visitor waits about a minute while it wakes. Choose Starter instead if that wait matters.
 2. Fill in the values marked as secret:
-   - `DATABASE_URL`: the session pooler string, with the scheme changed to `postgresql+asyncpg://`;
+   - `DATABASE_URL`: the session pooler string, as Supabase shows it;
    - `SUPABASE_URL`;
    - `CORS_ORIGINS`: the Vercel production URL;
    - `GROQ_API_KEY` and `GEMINI_API_KEY`.

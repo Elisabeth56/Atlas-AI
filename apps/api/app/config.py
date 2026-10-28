@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     DB_ECHO: bool = False
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _use_asyncpg(cls, url: str) -> str:
+        # Supabase and Render hand out postgresql:// URLs; SQLAlchemy would pick psycopg, which isn't installed
+        for scheme in ("postgresql://", "postgres://"):
+            if url.startswith(scheme):
+                return "postgresql+asyncpg://" + url[len(scheme):]
+        return url
 
     # --- LLM providers, tried in this order; any without a key is skipped (app/llm/chain.py) ---
     GROQ_API_KEY: str | None = None
