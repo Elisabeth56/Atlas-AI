@@ -34,3 +34,6 @@ Fallback calls exceed 20% of all calls, or evals show a provider scores lower on
 - The orchestrator stores each call in `llm_calls`, tagged with the run and agent from a context variable set around `agent.run`.
 - Failed calls and answers that came from a fallback provider are appended to the step's live log, e.g. `groq rate limited` → `answered by gemini (gemini-3.5-flash-lite)`.
 - `GET /api/runs/{id}` returns per-step `usage` (calls, tokens in/out, latency, failed calls). The eval harness (#42) reads the same table.
+
+## Model change (2026-10-28)
+Groq shut down `llama-3.3-70b-versatile` on 2026-08-16, and every call to it returned 404, so the first production runs were all answered by Gemini. The Groq model is now `openai/gpt-oss-120b`, one of Groq's listed replacements. Its free limits differ from the numbers in Context; check the Groq console before tuning `RUNS_PER_HOUR`.

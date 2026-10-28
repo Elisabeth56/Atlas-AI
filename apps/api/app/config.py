@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # --- LLM providers, tried in this order; any without a key is skipped (app/llm/chain.py) ---
     GROQ_API_KEY: str | None = None
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     LLM_TIMEOUT_SECONDS: float = 60.0
