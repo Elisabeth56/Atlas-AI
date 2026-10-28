@@ -23,3 +23,32 @@ async def test_mock_run_measures_both_modes_against_the_catalog():
     assert grounded["pii_leak_rate"] == fresh["pii_leak_rate"] == 100.0
     assert grounded["qa_critical_rate"] == fresh["qa_critical_rate"] == 100.0
     assert "| mock | grounded | 2 |" in table([report])
+
+
+def test_failures_are_grouped_by_reason():
+    from evals.run import failure_reason
+
+    assert failure_reason("LLMError: every LLM provider failed (groq: rate limited)") == "rate limited"
+    assert failure_reason("LLMError: groq returned invalid PlannerOutput after a repair attempt: 1 error") == \
+        "invalid JSON after repair"
+    assert failure_reason("LLMError: every LLM provider failed (gemini: HTTP 503)") == "HTTP 503"
+
+
+async def test_a_rate_limited_case_is_run_again(monkeypatch):
+    import evals.run as harness
+
+    calls = {"n": 0}
+    real = harness.run_case
+
+    async def flaky(case, mode, llm, tokens):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return harness.CaseResult(case=case["id"], kind=case["kind"], mode=mode, ok=False,
+                                      error="LLMError: every LLM provider failed (groq: rate limited)")
+        return await real(case, mode, llm, tokens)
+
+    monkeypatch.setattr(harness, "run_case", flaky)
+    report = await run_suite("mock", ["grounded"], CASES[:1], mock=True, rate_limit_wait=0)
+
+    assert calls["n"] == 2
+    assert report["summary"]["grounded"]["failed"] == 0
