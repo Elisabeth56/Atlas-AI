@@ -19,8 +19,7 @@ async def test_mock_run_measures_both_modes_against_the_catalog():
     report = await run_suite("mock", ["grounded", "fresh"], CASES[:2], mock=True)
 
     grounded, fresh = report["summary"]["grounded"], report["summary"]["fresh"]
-    # the demo fixture leaks card_last4: the catalog check sees it in both modes...
+    # the demo fixture leaks card_last4, and QA blocks it whether or not the run is grounded
     assert grounded["pii_leak_rate"] == fresh["pii_leak_rate"] == 100.0
-    # ...but QA can only flag it when the run is grounded
-    assert (grounded["qa_critical_rate"], fresh["qa_critical_rate"]) == (100.0, 0.0)
+    assert grounded["qa_critical_rate"] == fresh["qa_critical_rate"] == 100.0
     assert "| mock | grounded | 2 |" in table([report])

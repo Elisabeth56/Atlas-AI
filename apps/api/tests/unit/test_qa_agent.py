@@ -96,3 +96,24 @@ async def test_clean_model_passes_everything():
     checks = await _checks(ctx)
 
     assert all(c["passed"] for c in checks.values()), checks
+
+
+async def test_start_fresh_still_blocks_unmasked_pii():
+    sql = "select\n    payment_id,\n    card_last4\nfrom {{ source('stripe', 'raw_stripe_payments') }}"
+    ctx = _ctx([_model(sql), TESTS], [])
+
+    result = await QAAgent().run(ctx)
+    checks = {c["name"]: c for c in result.data["checks"]}
+
+    assert checks["PII stays masked"]["severity"] == "critical"
+    assert "card_last4" in checks["PII stays masked"]["message"]
+    assert checks["Columns resolve to DataHub"]["severity"] == "warning"  # still ungrounded, not failed
+    assert [f["column"] for f in result.data["fixes"]] == ["card_last4"]
+
+
+async def test_start_fresh_with_masked_pii_passes_the_pii_check():
+    ctx = _ctx([_model("select payment_id, md5(card_last4) as card_hash from stripe_payments"), TESTS], [])
+
+    checks = await _checks(ctx)
+
+    assert checks["PII stays masked"]["passed"] is True
