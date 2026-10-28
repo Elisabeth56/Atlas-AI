@@ -33,7 +33,7 @@ async def test_fallback_is_stored_summed_and_logged(client):
     })
     chain = ProviderChain(
         [ProviderConfig("groq", "https://groq.test", "k", "llama"),
-         ProviderConfig("cerebras", "https://cerebras.test", "k", "gpt-oss-120b")],
+         ProviderConfig("gemini", "https://gemini.test", "k", "flash-lite")],
         transport=_answers(httpx.Response(503), ok),
         on_call=orchestrator.record_llm_call,
     )
@@ -46,4 +46,4 @@ async def test_fallback_is_stored_summed_and_logged(client):
     step = (await client.get(f"/api/runs/{run_id}")).json()["steps"][0]
     assert step["usage"] == {"calls": 2, "tokens_in": 120, "tokens_out": 30,
                              "latency_ms": step["usage"]["latency_ms"], "failed_calls": 1}
-    assert step["logs"] == ["groq http 503", "answered by cerebras (gpt-oss-120b)"]
+    assert step["logs"] == ["groq http 503", "answered by gemini (flash-lite)"]

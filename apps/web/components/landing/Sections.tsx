@@ -203,7 +203,7 @@ const FAQ = [
   },
   {
     q: "Which models does it use?",
-    a: "Free tiers, tried in order: Groq (Llama 3.3 70B), Cerebras (gpt-oss-120b), then Gemini 3.5 Flash-Lite. When one is rate-limited the next takes the call, and the run log says so.",
+    a: "Free tiers, tried in order: Groq (Llama 3.3 70B), then Gemini 3.5 Flash-Lite. When one is rate-limited the next takes the call, and the run log says so.",
   },
   {
     q: "What if the output is wrong?",

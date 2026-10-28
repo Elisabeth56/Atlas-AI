@@ -21,7 +21,7 @@ Three services, each doing what it's good at:
    - `DATABASE_URL`: the session pooler string, with the scheme changed to `postgresql+asyncpg://`;
    - `SUPABASE_URL`;
    - `CORS_ORIGINS`: the Vercel production URL;
-   - `GROQ_API_KEY`, `CEREBRAS_API_KEY`, `GEMINI_API_KEY`.
+   - `GROQ_API_KEY` and `GEMINI_API_KEY`.
 3. Copy the service URL (`https://atlas-api-….onrender.com`). Under Settings, copy the **Deploy Hook** URL.
 
 ## 3. GitHub

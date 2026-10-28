@@ -12,7 +12,7 @@ Each case runs the real planner, analyst, data engineer and QA in-process, once 
 
 ```bash
 cd apps/api
-GROQ_API_KEY=... CEREBRAS_API_KEY=... GEMINI_API_KEY=... python -m evals.run   # one provider at a time
+GROQ_API_KEY=... GEMINI_API_KEY=... python -m evals.run   # one provider at a time
 python -m evals.run --providers groq --limit 5                                 # a quick look
 python -m evals.run --mock                                                     # checks the harness only
 ```

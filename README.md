@@ -323,8 +323,8 @@ your input twice.
 
 ### Going beyond demo mode
 
-- **LLM providers:** set any of `GROQ_API_KEY`, `CEREBRAS_API_KEY`,
-  `GEMINI_API_KEY` in `apps/api/.env`. They are tried in that order and a
+- **LLM providers:** set `GROQ_API_KEY`, `GEMINI_API_KEY` or both in
+  `apps/api/.env`. They are tried in that order and a
   rate-limited or failing provider hands the call to the next
   ([ADR 004](docs/decisions/004-llm-provider-chain.md)).
 - **DataHub:** set `DATAHUB_GMS_URL` (and `DATAHUB_TOKEN` if your instance

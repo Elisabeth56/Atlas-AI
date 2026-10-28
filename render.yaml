@@ -32,7 +32,5 @@ services:
         value: https://atlas-ai-[a-z0-9-]+-elisabeth-nnamanis-projects\.vercel\.app
       - key: GROQ_API_KEY
         sync: false
-      - key: CEREBRAS_API_KEY
-        sync: false
       - key: GEMINI_API_KEY
         sync: false

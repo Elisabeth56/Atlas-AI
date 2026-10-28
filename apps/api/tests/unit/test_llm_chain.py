@@ -11,7 +11,7 @@ from app.llm.provider import LLMError
 from app.schemas import PlannerOutput
 
 GROQ = ProviderConfig("groq", "https://groq.test", "k1", "llama")
-CEREBRAS = ProviderConfig("cerebras", "https://cerebras.test", "k2", "gpt-oss")
+GEMINI = ProviderConfig("gemini", "https://gemini.test", "k2", "flash-lite")
 
 VALID = json.dumps({"goal": "build revenue", "entities": ["revenue"], "summary": "planned"})
 
@@ -48,7 +48,7 @@ def _chain(script: Script, sleeps: list[float] | None = None) -> ProviderChain:
             sleeps.append(seconds)
 
     return ProviderChain(
-        [GROQ, CEREBRAS], transport=httpx.MockTransport(script), sleep=fake_sleep
+        [GROQ, GEMINI], transport=httpx.MockTransport(script), sleep=fake_sleep
     )
 
 
@@ -62,7 +62,7 @@ async def test_rate_limit_without_retry_after_falls_back_to_next_provider():
     result = await _plan(_chain(script))
 
     assert result.goal == "build revenue"
-    assert script.hosts == ["groq.test", "cerebras.test"]
+    assert script.hosts == ["groq.test", "gemini.test"]
 
 
 async def test_short_retry_after_waits_and_retries_same_provider():
@@ -80,7 +80,7 @@ async def test_server_error_falls_back():
 
     await _plan(_chain(script))
 
-    assert script.hosts == ["groq.test", "cerebras.test"]
+    assert script.hosts == ["groq.test", "gemini.test"]
 
 
 async def test_invalid_json_is_repaired_with_the_validation_error():
@@ -125,12 +125,12 @@ async def test_every_call_is_reported_with_fallback_marked():
         records.append(record)
 
     script = Script(httpx.Response(429), _completion(VALID))
-    chain = ProviderChain([GROQ, CEREBRAS], transport=httpx.MockTransport(script), on_call=collect)
+    chain = ProviderChain([GROQ, GEMINI], transport=httpx.MockTransport(script), on_call=collect)
 
     await _plan(chain)
 
     assert [(r.provider, r.outcome, r.fallback) for r in records] == [
         ("groq", "rate_limited", False),
-        ("cerebras", "ok", True),
+        ("gemini", "ok", True),
     ]
     assert (records[1].tokens_in, records[1].tokens_out) == (100, 20)

@@ -59,7 +59,6 @@ def providers_from_settings(settings: Settings) -> list[ProviderConfig]:
     """The configured providers in fallback order. A provider without a key is skipped."""
     candidates = [
         ("groq", "https://api.groq.com/openai/v1", settings.GROQ_API_KEY, settings.GROQ_MODEL),
-        ("cerebras", "https://api.cerebras.ai/v1", settings.CEREBRAS_API_KEY, settings.CEREBRAS_MODEL),
         (
             "gemini",
             "https://generativelanguage.googleapis.com/v1beta/openai",
