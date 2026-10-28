@@ -19,10 +19,14 @@ services:
         value: production
       - key: RUNS_PER_HOUR
         value: "10"
-      # Supabase → Project Settings → Database → Session pooler (IPv4, keeps prepared statements).
-      # Use the postgresql+asyncpg:// scheme.
+      # Supabase → Connect → Session pooler (IPv4, keeps prepared statements), pasted as is
       - key: DATABASE_URL
         sync: false
+      # the free session pooler allows about 15 connections
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: DB_MAX_OVERFLOW
+        value: "5"
       - key: SUPABASE_URL
         sync: false
       # the Vercel production URL; previews match CORS_ORIGIN_REGEX
