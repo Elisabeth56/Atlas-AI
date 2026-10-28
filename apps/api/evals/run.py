@@ -14,9 +14,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import statistics
 import time
 import uuid
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -126,7 +128,24 @@ def summarise(results: list[CaseResult]) -> dict:
     return out
 
 
-async def run_suite(provider: str, modes: list[str], cases: list[dict], mock: bool = False, pause: float = 0.0) -> dict:
+RATE_LIMIT_RETRIES = 2  # a case that hits a provider's rate limit waits and runs again, up to this many times
+
+
+def failure_reason(error: str) -> str:
+    """Groups errors that differ only in details (ids, numbers, field paths) under one short reason."""
+    if "rate limited" in error:
+        return "rate limited"
+    if "after a repair attempt" in error:
+        return "invalid JSON after repair"
+    if m := re.search(r"HTTP (\d{3})", error):
+        return f"HTTP {m.group(1)}"
+    return error.split(":", 1)[0]
+
+
+async def run_suite(
+    provider: str, modes: list[str], cases: list[dict], mock: bool = False, pause: float = 0.0,
+    rate_limit_wait: float = 60.0,
+) -> dict:
     calls: list[CallRecord] = []
 
     async def record(call: CallRecord) -> None:
@@ -143,12 +162,20 @@ async def run_suite(provider: str, modes: list[str], cases: list[dict], mock: bo
     for case in cases:
         for mode in modes:
             result = await run_case(case, mode, llm, calls)
+            for _ in range(RATE_LIMIT_RETRIES):
+                if result.ok or failure_reason(result.error or "") != "rate limited":
+                    break
+                print(f"  {provider:9} {mode:8} {case['id']:24} rate limited, waiting {rate_limit_wait:.0f}s")
+                await asyncio.sleep(rate_limit_wait)
+                result = await run_case(case, mode, llm, calls)
             results.append(result)
             print(f"  {provider:9} {mode:8} {case['id']:24} "
                   f"{'ok' if result.ok else 'FAILED':6} unresolved={len(result.unresolved)} pii={len(result.pii_exposed)}")
             if pause:
                 await asyncio.sleep(pause)  # free tiers count requests per minute
-    return {"provider": provider, "summary": summarise(results), "results": [asdict(r) for r in results]}
+    failures = Counter(f"{r.mode}: {failure_reason(r.error)}" for r in results if not r.ok and r.error)
+    return {"provider": provider, "summary": summarise(results), "failures": dict(failures.most_common()),
+            "results": [asdict(r) for r in results]}
 
 
 def table(reports: list[dict]) -> str:
@@ -164,6 +191,9 @@ def table(reports: list[dict]) -> str:
                 f"{pct(s['pii_leak_rate'])} | {pct(s['qa_critical_rate'])} | {pct(s['false_match_rate'])} | "
                 f"{s['latency_p50_s']} | {s['latency_p95_s']} | {s['tokens_per_run']} |"
             )
+    failed = [f"- {rep['provider']} {reason}: {n}" for rep in reports for reason, n in rep.get("failures", {}).items()]
+    if failed:
+        rows += ["", "Failed cases by reason:", *failed]
     return "\n".join(rows)
 
 
@@ -173,7 +203,8 @@ def main() -> None:
     parser.add_argument("--modes", default="grounded,fresh")
     parser.add_argument("--limit", type=int, help="run only the first N cases")
     parser.add_argument("--mock", action="store_true", help="use the demo fixtures instead of a model")
-    parser.add_argument("--pause", type=float, default=2.0, help="seconds between cases, for rate limits")
+    parser.add_argument("--pause", type=float, default=5.0, help="seconds between cases, for rate limits")
+    parser.add_argument("--rate-limit-wait", type=float, default=60.0, help="seconds to wait before rerunning a rate-limited case")
     args = parser.parse_args()
 
     cases = [json.loads(line) for line in (HERE / "cases.jsonl").read_text().splitlines() if line.strip()]
@@ -191,7 +222,8 @@ def main() -> None:
     reports = []
     for provider in providers:
         print(f"{provider}: {len(cases)} cases × {len(modes)} modes")
-        report = asyncio.run(run_suite(provider, modes, cases, mock=args.mock, pause=0 if args.mock else args.pause))
+        report = asyncio.run(run_suite(provider, modes, cases, mock=args.mock, pause=0 if args.mock else args.pause,
+                                    rate_limit_wait=args.rate_limit_wait))
         report["ran_at"] = stamp
         (HERE / "results" / f"{stamp}-{provider}.json").write_text(json.dumps(report, indent=2))
         reports.append(report)
