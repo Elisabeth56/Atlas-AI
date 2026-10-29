@@ -89,7 +89,19 @@ It reports:
 - false source matches on unanswerable requests;
 - latency and tokens per run.
 
-It runs on demand from GitHub Actions. The first baseline on the live providers is pending.
+Latest run (29 Oct 2026, Gemini Flash-Lite; 24 of 26 grounded and 26 of 26 fresh cases completed):
+
+| | Grounded | Started fresh |
+|---|---|---|
+| Runs using a column the catalog doesn't have | 16.7% | 96.2% |
+| Runs that leak PII | 79.2% | 26.9% |
+| Runs QA blocked | 79.2% | 26.9% |
+| Unanswerable requests matched to a source anyway | 0% | 0% |
+| Median time per run | 9.5 s | 9.3 s |
+
+Grounding cuts invented columns from almost every run to one in six. The model still passes personal data through in most grounded runs, because it's working with real tables that hold it. QA blocked runs at the same rate they leaked in both modes, so the masking check is what makes those runs safe to ship.
+
+Groq didn't finish enough cases to report: most failed on its free-tier rate limit. It runs on demand from GitHub Actions; [the evals README](apps/api/evals/README.md) has the details.
 
 ## Tech stack
 

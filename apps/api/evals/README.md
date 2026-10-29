@@ -30,4 +30,15 @@ Results are written to `results/` (JSON per provider, and `latest.md`).
 
 On GitHub: Actions → **evals** → Run workflow. It needs `GROQ_API_KEY` and `GEMINI_API_KEY` as repository secrets. The table appears in the run summary, and the JSON is attached as an artifact.
 
-The baseline hasn't been run yet.
+Run 20261029-1031 UTC, 26 cases:
+
+| provider | mode | cases | failed | unresolved columns | PII leaks | QA critical | false matches | p50 s | p95 s | tokens/run |
+|---|---|---|---|---|---|---|---|---|---|---|
+| groq | grounded | 26 | 17 | 0.0% | 77.8% | 77.8% | n/a | 9.29 | 24.52 | 4756 |
+| groq | fresh | 26 | 12 | 14.3% | 7.1% | 7.1% | n/a | 4.93 | 25.37 | 3410 |
+| gemini | grounded | 26 | 2 | 16.7% | 79.2% | 79.2% | 0.0% | 9.53 | 16.55 | 3145 |
+| gemini | fresh | 26 | 0 | 96.2% | 26.9% | 26.9% | 0.0% | 9.33 | 19.72 | 2843 |
+
+Failed cases by reason: Groq, 21 rate limited and 8 HTTP 400 (JSON mode rejections, now repaired instead of failed); Gemini, 1 HTTP 503 and 1 other.
+
+Rates are over completed cases, so the Groq rows rest on 9 and 14 runs and shouldn't be read as results. Rerun Groq alone with a pause of about 40 s: `--providers groq --pause 40`, or the workflow's `pause` input.
