@@ -11,6 +11,9 @@ on:
       limit:
         description: "run only the first N cases; empty runs all 26"
         required: false
+      pause:
+        description: "seconds between cases; Groq's free tier needs about 40"
+        required: false
 
 jobs:
   evals:
@@ -31,6 +34,7 @@ jobs:
           args=()
           [ -n "${{ inputs.providers }}" ] && args+=(--providers "${{ inputs.providers }}")
           [ -n "${{ inputs.limit }}" ] && args+=(--limit "${{ inputs.limit }}")
+          [ -n "${{ inputs.pause }}" ] && args+=(--pause "${{ inputs.pause }}")
           .venv/bin/python -m evals.run "${args[@]}"
       - name: Summary
         if: always()

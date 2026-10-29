@@ -134,3 +134,23 @@ async def test_every_call_is_reported_with_fallback_marked():
         ("gemini", "ok", True),
     ]
     assert (records[1].tokens_in, records[1].tokens_out) == (100, 20)
+
+
+async def test_groq_json_mode_rejection_goes_to_the_repair_step():
+    rejected = httpx.Response(400, json={"error": {
+        "code": "json_validate_failed", "message": "Failed to generate JSON", "failed_generation": '{"goal": '}})
+    script = Script(rejected, _completion(VALID))
+
+    plan = await _plan(_chain(script))
+
+    assert plan.goal == "build revenue"
+    assert script.hosts == ["groq.test", "groq.test"]  # repaired on the same provider, no fallback
+    assert json.loads(script.requests[1].content)["messages"][-2]["content"] == '{"goal": '
+
+
+async def test_other_400s_still_fall_back():
+    script = Script(httpx.Response(400, json={"error": {"code": "model_not_found"}}), _completion(VALID))
+
+    await _plan(_chain(script))
+
+    assert script.hosts == ["groq.test", "gemini.test"]
