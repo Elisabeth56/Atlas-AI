@@ -162,6 +162,11 @@ class ProviderChain(LLMProvider):
                     continue
                 raise ProviderUnavailable("rate limited")
 
+            if resp.status_code == 400 and (failed := _failed_json(resp)) is not None:
+                # Groq's JSON mode rejects output that isn't valid JSON with a 400; the repair step can fix it
+                await self._record(provider, prompt_id, started, fallback, outcome="invalid_json")
+                return failed
+
             if resp.status_code != 200:
                 await self._record(provider, prompt_id, started, fallback, outcome=f"http_{resp.status_code}")
                 raise ProviderUnavailable(f"HTTP {resp.status_code}")
@@ -198,6 +203,17 @@ class ProviderChain(LLMProvider):
         )
         if self._on_call:
             await self._on_call(record)
+
+
+def _failed_json(resp: httpx.Response) -> str | None:
+    """The model's rejected output when a 400 means "not valid JSON", else None."""
+    try:
+        error = resp.json().get("error") or {}
+    except ValueError:
+        return None
+    if error.get("code") != "json_validate_failed":
+        return None
+    return error.get("failed_generation") or ""
 
 
 def _retry_after(resp: httpx.Response) -> float | None:
