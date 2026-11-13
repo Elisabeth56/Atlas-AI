@@ -37,7 +37,8 @@ function SignInForm() {
       setState("idle");
       return;
     }
-    router.push(next);
+    // a full load: the router may have cached the redirect that sent the visitor here
+    window.location.assign(next);
   }
 
   return (
